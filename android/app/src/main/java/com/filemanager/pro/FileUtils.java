@@ -4,13 +4,12 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.net.Uri;
 import android.provider.DocumentsContract;
+import android.util.Log;
 import android.webkit.MimeTypeMap;
 
 import androidx.documentfile.provider.DocumentFile;
 
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
+import com.getcapacitor.JSObject;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -18,174 +17,346 @@ import java.util.Locale;
 
 public class FileUtils {
 
-    public static JSONObject documentToJson(DocumentFile file, Uri parentUri) throws JSONException {
-        JSONObject obj = new JSONObject();
+    private static final String TAG = "SAF_FILE_UTILS";
 
-        String name = file.getName() != null ? file.getName() : "unknown";
-        String mime = file.getType() != null ? file.getType() : "";
-        boolean isDir = file.isDirectory();
-        String type = detectType(name, mime, isDir);
+    // =========================
+    // RESOLVER DOCUMENTFILE
+    // =========================
+    public static DocumentFile resolveDocumentFile(Context context, Uri uri) {
+        try {
+            if (uri == null) return null;
+
+            if (DocumentsContract.isTreeUri(uri)) {
+                return DocumentFile.fromTreeUri(context, uri);
+            }
+
+            if (DocumentsContract.isDocumentUri(context, uri)) {
+                return DocumentFile.fromSingleUri(context, uri);
+            }
+
+            return DocumentFile.fromSingleUri(context, uri);
+
+        } catch (Exception e) {
+            Log.e(TAG, "resolveDocumentFile error: " + uri, e);
+            return null;
+        }
+    }
+
+    // =========================
+    // JSON PARA FRONT
+    // =========================
+    public static JSObject documentToJson(DocumentFile file) {
+        JSObject obj = new JSObject();
+
+        String name = file.getName() != null ? file.getName() : "Sin nombre";
+        String mime = file.getType();
 
         obj.put("id", file.getUri().toString());
-        obj.put("name", name);
         obj.put("uri", file.getUri().toString());
-        obj.put("path", file.getUri().toString());
-        obj.put("type", type);
-        obj.put("isDirectory", isDir);
-        obj.put("size", file.length());
+        obj.put("name", name);
+        obj.put("isDirectory", file.isDirectory());
+        obj.put("mimeType", mime != null ? mime : "");
+        obj.put("size", file.isDirectory() ? 0 : file.length());
         obj.put("modified", file.lastModified());
-        obj.put("mimeType", mime);
-        obj.put("parentUri", parentUri != null ? parentUri.toString() : JSONObject.NULL);
-        obj.put("canRead", file.canRead());
-        obj.put("canWrite", file.canWrite());
+        obj.put("type", file.isDirectory() ? "folder" : detectType(name, mime));
 
         return obj;
     }
 
-    public static JSONArray listChildren(Context context, Uri treeUri) throws JSONException {
-        JSONArray arr = new JSONArray();
+    // =========================
+    // BUSCAR HIJO POR NOMBRE
+    // =========================
+    public static DocumentFile findChildByName(DocumentFile parent, String name) {
+        try {
+            if (parent == null || !parent.exists() || !parent.isDirectory()) return null;
 
-        DocumentFile dir = DocumentFile.fromTreeUri(context, treeUri);
-        if (dir == null || !dir.exists() || !dir.isDirectory()) {
-            return arr;
-        }
-
-        DocumentFile[] files = dir.listFiles();
-        for (DocumentFile file : files) {
-            arr.put(documentToJson(file, treeUri));
-        }
-
-        return arr;
-    }
-
-    public static String detectType(String name, String mime, boolean isDir) {
-        if (isDir) return "folder";
-
-        String lower = name.toLowerCase(Locale.ROOT);
-
-        if (mime.startsWith("image/")) return "image";
-        if (mime.startsWith("video/")) return "video";
-        if (mime.startsWith("audio/")) return "audio";
-
-        if (
-                lower.endsWith(".pdf") ||
-                lower.endsWith(".doc") ||
-                lower.endsWith(".docx") ||
-                lower.endsWith(".txt") ||
-                lower.endsWith(".xls") ||
-                lower.endsWith(".xlsx") ||
-                lower.endsWith(".ppt") ||
-                lower.endsWith(".pptx") ||
-                lower.endsWith(".csv") ||
-                lower.endsWith(".json") ||
-                lower.endsWith(".xml") ||
-                lower.endsWith(".md")
-        ) return "document";
-
-        if (
-                lower.endsWith(".zip") ||
-                lower.endsWith(".rar") ||
-                lower.endsWith(".7z") ||
-                lower.endsWith(".tar") ||
-                lower.endsWith(".gz")
-        ) return "archive";
-
-        if (lower.endsWith(".apk")) return "apk";
-
-        return "other";
-    }
-
-    public static DocumentFile findFileByName(DocumentFile parent, String name) {
-        if (parent == null || !parent.isDirectory()) return null;
-
-        for (DocumentFile child : parent.listFiles()) {
-            if (child.getName() != null && child.getName().equalsIgnoreCase(name)) {
-                return child;
+            for (DocumentFile child : parent.listFiles()) {
+                if (child.getName() != null && child.getName().equalsIgnoreCase(name)) {
+                    return child;
+                }
             }
+        } catch (Exception e) {
+            Log.e(TAG, "findChildByName error", e);
         }
         return null;
     }
 
-    public static boolean copyDocument(Context context, Uri sourceUri, Uri targetDirUri) {
+    // =========================
+    // COMPARAR URI
+    // =========================
+    public static boolean isSameUri(Uri a, Uri b) {
+        if (a == null || b == null) return false;
+        return a.toString().equals(b.toString());
+    }
+
+    // =========================
+    // SABER SI TARGET ESTÁ DENTRO DEL SOURCE
+    // evita copiar/mover carpeta dentro de sí misma
+    // =========================
+    public static boolean isChildOf(DocumentFile sourceDir, DocumentFile targetDir) {
+        if (sourceDir == null || targetDir == null) return false;
+
+        String sourceUri = sourceDir.getUri().toString();
+        String targetUri = targetDir.getUri().toString();
+
+        return targetUri.startsWith(sourceUri);
+    }
+
+    // =========================
+    // COPIAR RECURSIVO
+    // =========================
+    public static DocumentFile copyDocumentRecursive(Context context, DocumentFile source, DocumentFile targetDir) {
         try {
-            ContentResolver resolver = context.getContentResolver();
-
-            DocumentFile source = DocumentFile.fromSingleUri(context, sourceUri);
-            if (source == null || !source.exists()) return false;
-
-            DocumentFile targetDir = DocumentFile.fromTreeUri(context, targetDirUri);
-            if (targetDir == null || !targetDir.exists() || !targetDir.isDirectory()) return false;
+            if (source == null || !source.exists()) return null;
+            if (targetDir == null || !targetDir.exists() || !targetDir.isDirectory()) return null;
 
             if (source.isDirectory()) {
-                DocumentFile newDir = targetDir.createDirectory(source.getName() != null ? source.getName() : "New Folder");
-                if (newDir == null) return false;
-
-                for (DocumentFile child : source.listFiles()) {
-                    copyDocument(context, child.getUri(), newDir.getUri());
-                }
-                return true;
+                return copyDirectory(context, source, targetDir);
             } else {
-                String mime = source.getType() != null ? source.getType() : "application/octet-stream";
-                String fileName = source.getName() != null ? source.getName() : "file";
-
-                DocumentFile newFile = targetDir.createFile(mime, fileName);
-                if (newFile == null) return false;
-
-                InputStream in = resolver.openInputStream(source.getUri());
-                OutputStream out = resolver.openOutputStream(newFile.getUri());
-
-                if (in == null || out == null) return false;
-
-                byte[] buffer = new byte[8192];
-                int len;
-                while ((len = in.read(buffer)) > 0) {
-                    out.write(buffer, 0, len);
-                }
-
-                in.close();
-                out.flush();
-                out.close();
-
-                return true;
+                return copySingleFile(context, source, targetDir);
             }
+
         } catch (Exception e) {
-            e.printStackTrace();
-            return false;
+            Log.e(TAG, "copyDocumentRecursive error", e);
+            return null;
         }
     }
 
-    public static boolean moveDocument(Context context, Uri sourceUri, Uri targetDirUri) {
-        boolean copied = copyDocument(context, sourceUri, targetDirUri);
-        if (!copied) return false;
-
+    // =========================
+    // COPIAR CARPETA
+    // =========================
+    public static DocumentFile copyDirectory(Context context, DocumentFile sourceDir, DocumentFile targetDir) {
         try {
-            DocumentFile source = DocumentFile.fromSingleUri(context, sourceUri);
-            if (source == null) {
-                source = DocumentFile.fromTreeUri(context, sourceUri);
-            }
-            return source != null && source.delete();
-        } catch (Exception e) {
-            e.printStackTrace();
-            return false;
-        }
-    }
+            if (sourceDir == null || !sourceDir.exists() || !sourceDir.isDirectory()) return null;
+            if (targetDir == null || !targetDir.exists() || !targetDir.isDirectory()) return null;
 
-    public static Uri getParentUri(Uri currentTreeUri) {
-        try {
-            String docId = DocumentsContract.getTreeDocumentId(currentTreeUri);
+            String sourceName = safeName(sourceDir.getName(), "Nueva carpeta");
+            String uniqueDirName = generateUniqueName(targetDir, sourceName, true);
 
-            if (docId == null || !docId.contains("/")) {
+            DocumentFile newDir = targetDir.createDirectory(uniqueDirName);
+            if (newDir == null) {
+                Log.e(TAG, "No se pudo crear carpeta destino");
                 return null;
             }
 
-            String parentDocId = docId.substring(0, docId.lastIndexOf("/"));
-            return DocumentsContract.buildTreeDocumentUri(
-                    currentTreeUri.getAuthority(),
-                    parentDocId
-            );
+            for (DocumentFile child : sourceDir.listFiles()) {
+                DocumentFile childResult = copyDocumentRecursive(context, child, newDir);
+                if (childResult == null) {
+                    Log.e(TAG, "Error copiando hijo: " + child.getName());
+                    return null;
+                }
+            }
+
+            return newDir;
+
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.e(TAG, "copyDirectory error", e);
             return null;
         }
+    }
+
+    // =========================
+    // COPIAR SOLO ARCHIVO
+    // =========================
+    public static DocumentFile copySingleFile(Context context, DocumentFile source, DocumentFile targetDir) {
+        InputStream in = null;
+        OutputStream out = null;
+
+        try {
+            if (source == null || !source.exists() || source.isDirectory()) return null;
+            if (targetDir == null || !targetDir.exists() || !targetDir.isDirectory()) return null;
+
+            String originalName = safeName(source.getName(), "archivo");
+            String mimeType = source.getType();
+
+            if (mimeType == null || mimeType.trim().isEmpty()) {
+                mimeType = guessMimeType(originalName);
+            }
+
+            String uniqueName = generateUniqueName(targetDir, originalName, false);
+
+            DocumentFile newFile = targetDir.createFile(mimeType, uniqueName);
+            if (newFile == null) {
+                Log.e(TAG, "No se pudo crear archivo destino");
+                return null;
+            }
+
+            ContentResolver resolver = context.getContentResolver();
+
+            in = resolver.openInputStream(source.getUri());
+            out = resolver.openOutputStream(newFile.getUri(), "w");
+
+            if (in == null || out == null) {
+                Log.e(TAG, "No se pudieron abrir streams");
+                return null;
+            }
+
+            byte[] buffer = new byte[8192];
+            int len;
+
+            while ((len = in.read(buffer)) > 0) {
+                out.write(buffer, 0, len);
+            }
+
+            out.flush();
+            return newFile;
+
+        } catch (Exception e) {
+            Log.e(TAG, "copySingleFile error", e);
+            return null;
+        } finally {
+            try { if (in != null) in.close(); } catch (Exception ignored) {}
+            try { if (out != null) out.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    // =========================
+    // MOVER (COPY + DELETE)
+    // =========================
+    public static DocumentFile move(Context context, DocumentFile source, DocumentFile targetDir) throws Exception {
+        DocumentFile copied = copyDocumentRecursive(context, source, targetDir);
+
+        if (copied == null || !copied.exists()) {
+            throw new Exception("Could not move file/folder");
+        }
+
+        boolean deleted = deleteRecursive(source);
+        if (!deleted) {
+            throw new Exception("Copied, but could not remove original");
+        }
+
+        return copied;
+    }
+
+    // =========================
+    // BORRADO RECURSIVO
+    // =========================
+    public static boolean deleteRecursive(DocumentFile file) {
+        try {
+            if (file == null || !file.exists()) return false;
+
+            if (file.isDirectory()) {
+                for (DocumentFile child : file.listFiles()) {
+                    boolean ok = deleteRecursive(child);
+                    if (!ok) return false;
+                }
+            }
+
+            return file.delete();
+
+        } catch (Exception e) {
+            Log.e(TAG, "deleteRecursive error", e);
+            return false;
+        }
+    }
+
+    // =========================
+    // NOMBRE SEGURO
+    // =========================
+    public static String safeName(String value, String fallback) {
+        if (value == null || value.trim().isEmpty()) return fallback;
+        return value.trim();
+    }
+
+    // =========================
+    // MIME GUESS
+    // =========================
+    public static String guessMimeType(String fileName) {
+        try {
+            String ext = "";
+            int dot = fileName.lastIndexOf('.');
+            if (dot >= 0 && dot < fileName.length() - 1) {
+                ext = fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
+            }
+
+            String mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
+            return mime != null ? mime : "application/octet-stream";
+        } catch (Exception e) {
+            return "application/octet-stream";
+        }
+    }
+
+    // =========================
+    // TIPO VISUAL FRONT
+    // =========================
+    public static String detectType(String name, String mimeType) {
+        String lowerName = name != null ? name.toLowerCase(Locale.ROOT) : "";
+        String lowerMime = mimeType != null ? mimeType.toLowerCase(Locale.ROOT) : "";
+
+        if (lowerMime.startsWith("image/")) return "image";
+        if (lowerMime.startsWith("video/")) return "video";
+        if (lowerMime.startsWith("audio/")) return "audio";
+        if (lowerMime.contains("pdf")) return "document";
+        if (lowerMime.contains("text")) return "document";
+        if (lowerMime.contains("word")) return "document";
+        if (lowerMime.contains("sheet")) return "document";
+        if (lowerMime.contains("excel")) return "document";
+        if (lowerMime.contains("powerpoint")) return "document";
+        if (lowerMime.contains("zip") || lowerMime.contains("rar") || lowerMime.contains("7z")) return "archive";
+        if (lowerName.endsWith(".apk")) return "apk";
+
+        return "file";
+    }
+
+    private static String getBaseName(String fileName) {
+        int dot = fileName.lastIndexOf(".");
+        if (dot > 0) {
+            return fileName.substring(0, dot);
+        }
+        return fileName;
+    }
+
+    private static String getExtension(String fileName) {
+        int dot = fileName.lastIndexOf(".");
+        if (dot > 0 && dot < fileName.length() - 1) {
+            return fileName.substring(dot); // incluye el punto
+        }
+        return "";
+    }
+
+    private static boolean childExists(DocumentFile parent, String name) {
+        if (parent == null || !parent.isDirectory()) return false;
+
+        for (DocumentFile child : parent.listFiles()) {
+            if (child.getName() != null && child.getName().equalsIgnoreCase(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // =========================
+    // GENERAR NOMBRE ÚNICO
+    // =========================
+    private static String generateUniqueName(DocumentFile targetDir, String originalName, boolean isDirectory) {
+        if (targetDir == null || originalName == null || originalName.trim().isEmpty()) {
+            return originalName;
+        }
+
+        if (!childExists(targetDir, originalName)) {
+            return originalName;
+        }
+
+        if (isDirectory) {
+            int counter = 1;
+            String candidate;
+            do {
+                candidate = originalName + " (" + counter + ")";
+                counter++;
+            } while (childExists(targetDir, candidate));
+            return candidate;
+        }
+
+        String baseName = getBaseName(originalName);
+        String extension = getExtension(originalName);
+
+        int counter = 1;
+        String candidate;
+        do {
+            candidate = baseName + " (" + counter + ")" + extension;
+            counter++;
+        } while (childExists(targetDir, candidate));
+
+        return candidate;
     }
 }

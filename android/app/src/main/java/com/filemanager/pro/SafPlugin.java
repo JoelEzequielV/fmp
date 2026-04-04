@@ -1,12 +1,11 @@
 package com.filemanager.pro;
 
-import android.app.Activity;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.net.Uri;
+import android.util.Log;
 
-import androidx.activity.result.ActivityResult;
-import androidx.core.content.FileProvider;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.documentfile.provider.DocumentFile;
 
 import com.getcapacitor.JSArray;
@@ -14,346 +13,433 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
-import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
-
-import org.json.JSONArray;
 
 @CapacitorPlugin(name = "Saf")
 public class SafPlugin extends Plugin {
 
-    private static final String PREFS = "file_manager_pro_prefs";
-    private static final String KEY_INTERNAL_URI = "root_internal_uri";
-    private static final String KEY_SD_URI = "root_sd_uri";
+    private static final String TAG = "SAF_PLUGIN";
+    private PluginCall pendingPickDirectoryCall;
+    private ActivityResultLauncher<Intent> pickDirectoryLauncher;
 
+    @Override
+    public void load() {
+        super.load();
+
+        pickDirectoryLauncher = getActivity().registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (pendingPickDirectoryCall == null) return;
+
+                    try {
+                        if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) {
+                            pendingPickDirectoryCall.reject("No se seleccionó ninguna carpeta");
+                            pendingPickDirectoryCall = null;
+                            return;
+                        }
+
+                        Uri treeUri = result.getData().getData();
+                        if (treeUri == null) {
+                            pendingPickDirectoryCall.reject("URI inválida");
+                            pendingPickDirectoryCall = null;
+                            return;
+                        }
+
+                        final int takeFlags =
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                                Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
+
+                        getActivity().getContentResolver().takePersistableUriPermission(treeUri, takeFlags);
+
+                        DocumentFile picked = FileUtils.resolveDocumentFile(getContext(), treeUri);
+
+                        JSObject ret = new JSObject();
+                        ret.put("uri", treeUri.toString());
+                        ret.put("name", picked != null && picked.getName() != null ? picked.getName() : "Carpeta");
+
+                        pendingPickDirectoryCall.resolve(ret);
+
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error seleccionando carpeta", e);
+                        pendingPickDirectoryCall.reject("Error seleccionando carpeta: " + e.getMessage());
+                    } finally {
+                        pendingPickDirectoryCall = null;
+                    }
+                }
+        );
+    }
+
+    // =========================
+    // PICK DIRECTORY
+    // =========================
     @PluginMethod
     public void pickDirectory(PluginCall call) {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        intent.addFlags(
-                Intent.FLAG_GRANT_READ_URI_PERMISSION |
-                Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
-                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION |
-                Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
-        );
-
-        startActivityForResult(call, intent, "pickDirectoryResult");
-    }
-
-    @ActivityCallback
-    private void pickDirectoryResult(PluginCall call, ActivityResult result) {
-        if (call == null) return;
-
-        if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
-            call.reject("Directory selection cancelled");
-            return;
-        }
-
         try {
-            Uri uri = result.getData().getData();
-            if (uri == null) {
-                call.reject("Invalid directory URI");
-                return;
-            }
+            pendingPickDirectoryCall = call;
 
-            getContext().getContentResolver().takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            );
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            intent.addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
 
-            DocumentFile dir = DocumentFile.fromTreeUri(getContext(), uri);
-
-            JSObject ret = new JSObject();
-            ret.put("uri", uri.toString());
-            ret.put("name", dir != null && dir.getName() != null ? dir.getName() : "Storage");
-
-            call.resolve(ret);
+            pickDirectoryLauncher.launch(intent);
         } catch (Exception e) {
-            call.reject("Error saving persistent permission: " + e.getMessage());
+            Log.e(TAG, "pickDirectory error", e);
+            call.reject("No se pudo abrir el selector de carpetas: " + e.getMessage());
         }
     }
 
+    // =========================
+    // LIST DIRECTORY
+    // =========================
     @PluginMethod
     public void listDirectory(PluginCall call) {
-        String uriString = call.getString("uri");
-        if (uriString == null || uriString.isEmpty()) {
-            call.reject("Missing directory URI");
-            return;
-        }
-
         try {
+            String uriString = call.getString("uri");
+            if (uriString == null || uriString.trim().isEmpty()) {
+                call.reject("URI requerida");
+                return;
+            }
+
             Uri uri = Uri.parse(uriString);
-            JSONArray items = FileUtils.listChildren(getContext(), uri);
-            Uri parentUri = FileUtils.getParentUri(uri);
+            DocumentFile dir = FileUtils.resolveDocumentFile(getContext(), uri);
+
+            if (dir == null || !dir.exists()) {
+                call.reject("No se pudo acceder a la carpeta");
+                return;
+            }
+
+            if (!dir.isDirectory()) {
+                call.reject("La URI no es una carpeta");
+                return;
+            }
+
+            DocumentFile[] files = dir.listFiles();
+            JSArray items = new JSArray();
+
+            if (files != null) {
+                for (DocumentFile file : files) {
+                    items.put(FileUtils.documentToJson(file));
+                }
+            }
 
             JSObject ret = new JSObject();
-            ret.put("currentUri", uri.toString());
-            ret.put("parentUri", parentUri != null ? parentUri.toString() : null);
-            ret.put("items", JSArray.from(items.toString()));
+            ret.put("currentUri", dir.getUri().toString());
+            ret.put("items", items);
 
             call.resolve(ret);
+
         } catch (Exception e) {
-            call.reject("Error listing directory: " + e.getMessage());
+            Log.e(TAG, "listDirectory error", e);
+            call.reject("No se pudo listar la carpeta: " + e.getMessage());
         }
     }
 
+    // =========================
+    // OPEN FILE
+    // =========================
+    @PluginMethod
+    public void openFile(PluginCall call) {
+        try {
+            String uriString = call.getString("uri");
+            String mimeType = call.getString("mimeType");
+
+            if (uriString == null || uriString.trim().isEmpty()) {
+                call.reject("URI requerida");
+                return;
+            }
+
+            Uri uri = Uri.parse(uriString);
+
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, mimeType != null ? mimeType : "*/*");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+
+            getContext().startActivity(intent);
+
+            call.resolve();
+        } catch (Exception e) {
+            Log.e(TAG, "openFile error", e);
+            call.reject("No se pudo abrir el archivo: " + e.getMessage());
+        }
+    }
+
+    // =========================
+    // CREATE FOLDER
+    // =========================
     @PluginMethod
     public void createFolder(PluginCall call) {
-        String parentUriString = call.getString("parentUri");
-        String folderName = call.getString("folderName");
-
-        if (parentUriString == null || folderName == null || folderName.trim().isEmpty()) {
-            call.reject("Missing parentUri or folderName");
-            return;
-        }
-
         try {
+            String parentUriString = call.getString("parentUri");
+            String name = call.getString("name");
+
+            if (parentUriString == null || parentUriString.trim().isEmpty()) {
+                call.reject("parentUri requerida");
+                return;
+            }
+
+            if (name == null || name.trim().isEmpty()) {
+                call.reject("Nombre requerido");
+                return;
+            }
+
             Uri parentUri = Uri.parse(parentUriString);
-            DocumentFile parent = DocumentFile.fromTreeUri(getContext(), parentUri);
+            DocumentFile parent = FileUtils.resolveDocumentFile(getContext(), parentUri);
 
             if (parent == null || !parent.exists() || !parent.isDirectory()) {
-                call.reject("Invalid parent directory");
+                call.reject("No se pudo acceder a la carpeta padre");
                 return;
             }
 
-            DocumentFile existing = FileUtils.findFileByName(parent, folderName);
+            DocumentFile existing = FileUtils.findChildByName(parent, name);
             if (existing != null) {
-                call.reject("A folder or file with that name already exists");
+                call.reject("Ya existe una carpeta o archivo con ese nombre");
                 return;
             }
 
-            DocumentFile newFolder = parent.createDirectory(folderName);
-            if (newFolder == null) {
-                call.reject("Could not create folder");
+            DocumentFile created = parent.createDirectory(name);
+            if (created == null) {
+                call.reject("No se pudo crear la carpeta");
                 return;
             }
 
             JSObject ret = new JSObject();
-            ret.put("success", true);
-            ret.put("uri", newFolder.getUri().toString());
-            ret.put("name", newFolder.getName());
+            ret.put("uri", created.getUri().toString());
+            ret.put("name", created.getName());
 
             call.resolve(ret);
+
         } catch (Exception e) {
-            call.reject("Error creating folder: " + e.getMessage());
+            Log.e(TAG, "createFolder error", e);
+            call.reject("No se pudo crear la carpeta: " + e.getMessage());
         }
     }
 
+    // =========================
+    // DELETE
+    // =========================
     @PluginMethod
-    public void rename(PluginCall call) {
-        String uriString = call.getString("uri");
-        String newName = call.getString("newName");
-
-        if (uriString == null || newName == null || newName.trim().isEmpty()) {
-            call.reject("Missing uri or newName");
-            return;
-        }
-
+    public void delete(PluginCall call) {
         try {
-            Uri uri = Uri.parse(uriString);
-            DocumentFile file = DocumentFile.fromSingleUri(getContext(), uri);
-            if (file == null) {
-                file = DocumentFile.fromTreeUri(getContext(), uri);
-            }
+            String uriString = call.getString("uri");
 
-            if (file == null || !file.exists()) {
-                call.reject("File not found");
+            if (uriString == null || uriString.trim().isEmpty()) {
+                call.reject("URI requerida");
                 return;
             }
 
-            boolean ok = file.renameTo(newName);
+            Uri uri = Uri.parse(uriString);
+            DocumentFile file = FileUtils.resolveDocumentFile(getContext(), uri);
+
+            if (file == null || !file.exists()) {
+                call.reject("Archivo o carpeta no encontrado");
+                return;
+            }
+
+            boolean deleted = FileUtils.deleteRecursive(file);
+            if (!deleted) {
+                call.reject("No se pudo eliminar");
+                return;
+            }
+
+            call.resolve();
+
+        } catch (Exception e) {
+            Log.e(TAG, "delete error", e);
+            call.reject("No se pudo eliminar: " + e.getMessage());
+        }
+    }
+
+    // =========================
+    // RENAME
+    // =========================
+    @PluginMethod
+    public void rename(PluginCall call) {
+        try {
+            String uriString = call.getString("uri");
+            String newName = call.getString("newName");
+
+            if (uriString == null || uriString.trim().isEmpty()) {
+                call.reject("URI requerida");
+                return;
+            }
+
+            if (newName == null || newName.trim().isEmpty()) {
+                call.reject("Nuevo nombre requerido");
+                return;
+            }
+
+            Uri uri = Uri.parse(uriString);
+            DocumentFile file = FileUtils.resolveDocumentFile(getContext(), uri);
+
+            if (file == null || !file.exists()) {
+                call.reject("Archivo o carpeta no encontrado");
+                return;
+            }
+
+            boolean ok = file.renameTo(newName.trim());
             if (!ok) {
                 call.reject("Could not rename file/folder");
                 return;
             }
 
             JSObject ret = new JSObject();
-            ret.put("success", true);
-            ret.put("newUri", file.getUri().toString());
-            ret.put("name", newName);
+            ret.put("uri", file.getUri().toString());
+            ret.put("name", file.getName());
 
             call.resolve(ret);
+
         } catch (Exception e) {
-            call.reject("Error renaming: " + e.getMessage());
+            Log.e(TAG, "rename error", e);
+            call.reject("Could not rename file/folder");
         }
     }
 
+    // =========================
+    // COPY
+    // =========================
     @PluginMethod
-    public void delete(PluginCall call) {
-        String uriString = call.getString("uri");
-
-        if (uriString == null) {
-            call.reject("Missing uri");
-            return;
-        }
-
+    public void copy(PluginCall call) {
         try {
-            Uri uri = Uri.parse(uriString);
-            DocumentFile file = DocumentFile.fromSingleUri(getContext(), uri);
-            if (file == null) {
-                file = DocumentFile.fromTreeUri(getContext(), uri);
-            }
+            String sourceUriString = call.getString("sourceUri");
+            String targetDirUriString = call.getString("targetDirUri");
 
-            if (file == null || !file.exists()) {
-                call.reject("File not found");
+            if (sourceUriString == null || targetDirUriString == null) {
+                call.reject("sourceUri y targetDirUri requeridos");
                 return;
             }
 
-            boolean ok = file.delete();
+            Uri sourceUri = Uri.parse(sourceUriString);
+            Uri targetDirUri = Uri.parse(targetDirUriString);
+
+            DocumentFile source = FileUtils.resolveDocumentFile(getContext(), sourceUri);
+            DocumentFile targetDir = FileUtils.resolveDocumentFile(getContext(), targetDirUri);
+
+            if (source == null || !source.exists()) {
+                call.reject("Origen no encontrado");
+                return;
+            }
+
+            if (targetDir == null || !targetDir.exists() || !targetDir.isDirectory()) {
+                call.reject("Destino inválido");
+                return;
+            }
+
+            if (FileUtils.isSameUri(source.getUri(), targetDir.getUri())) {
+                call.reject("No se puede copiar dentro de sí mismo");
+                return;
+            }
+
+            if (source.isDirectory() && FileUtils.isChildOf(source, targetDir)) {
+                call.reject("No se puede copiar una carpeta dentro de sí misma");
+                return;
+            }
+
+            DocumentFile result = FileUtils.copyDocumentRecursive(getContext(), source, targetDir);
+
+            if (result == null) {
+                call.reject("No se pudo copiar");
+                return;
+            }
 
             JSObject ret = new JSObject();
-            ret.put("success", ok);
+            ret.put("uri", result.getUri().toString());
+            ret.put("name", result.getName());
+
             call.resolve(ret);
+
         } catch (Exception e) {
-            call.reject("Error deleting: " + e.getMessage());
+            Log.e(TAG, "copy error", e);
+            call.reject("Could not copy file/folder");
         }
     }
 
-    @PluginMethod
-    public void copy(PluginCall call) {
-        String sourceUriString = call.getString("sourceUri");
-        String targetParentUriString = call.getString("targetParentUri");
-
-        if (sourceUriString == null || targetParentUriString == null) {
-            call.reject("Missing sourceUri or targetParentUri");
-            return;
-        }
-
-        try {
-            boolean ok = FileUtils.copyDocument(
-                    getContext(),
-                    Uri.parse(sourceUriString),
-                    Uri.parse(targetParentUriString)
-            );
-
-            JSObject ret = new JSObject();
-            ret.put("success", ok);
-            call.resolve(ret);
-        } catch (Exception e) {
-            call.reject("Error copying: " + e.getMessage());
-        }
-    }
-
+    // =========================
+    // MOVE
+    // =========================
     @PluginMethod
     public void move(PluginCall call) {
-        String sourceUriString = call.getString("sourceUri");
-        String targetParentUriString = call.getString("targetParentUri");
-
-        if (sourceUriString == null || targetParentUriString == null) {
-            call.reject("Missing sourceUri or targetParentUri");
-            return;
-        }
-
         try {
-            boolean ok = FileUtils.moveDocument(
-                    getContext(),
-                    Uri.parse(sourceUriString),
-                    Uri.parse(targetParentUriString)
-            );
+            String sourceUriString = call.getString("sourceUri");
+            String targetDirUriString = call.getString("targetDirUri");
+
+            if (sourceUriString == null || targetDirUriString == null) {
+                call.reject("sourceUri y targetDirUri requeridos");
+                return;
+            }
+
+            Uri sourceUri = Uri.parse(sourceUriString);
+            Uri targetDirUri = Uri.parse(targetDirUriString);
+
+            DocumentFile source = FileUtils.resolveDocumentFile(getContext(), sourceUri);
+            DocumentFile targetDir = FileUtils.resolveDocumentFile(getContext(), targetDirUri);
+
+            if (source == null || !source.exists()) {
+                call.reject("Origen no encontrado");
+                return;
+            }
+
+            if (targetDir == null || !targetDir.exists() || !targetDir.isDirectory()) {
+                call.reject("Destino inválido");
+                return;
+            }
+
+            if (FileUtils.isSameUri(source.getUri(), targetDir.getUri())) {
+                call.reject("No se puede mover dentro de sí mismo");
+                return;
+            }
+
+            if (source.isDirectory() && FileUtils.isChildOf(source, targetDir)) {
+                call.reject("No se puede mover una carpeta dentro de sí misma");
+                return;
+            }
+
+            DocumentFile moved = FileUtils.move(getContext(), source, targetDir);
 
             JSObject ret = new JSObject();
-            ret.put("success", ok);
+            ret.put("uri", moved.getUri().toString());
+            ret.put("name", moved.getName());
+
             call.resolve(ret);
+
         } catch (Exception e) {
-            call.reject("Error moving: " + e.getMessage());
+            Log.e(TAG, "move error", e);
+            call.reject("Could not move file/folder");
         }
     }
 
-    @PluginMethod
-    public void saveRootUri(PluginCall call) {
-        String key = call.getString("key");
-        String uri = call.getString("uri");
-
-        if (key == null || uri == null) {
-            call.reject("Missing key or uri");
-            return;
-        }
-
-        SharedPreferences prefs = getContext().getSharedPreferences(PREFS, Activity.MODE_PRIVATE);
-        prefs.edit().putString(key, uri).apply();
-
-        JSObject ret = new JSObject();
-        ret.put("success", true);
-        call.resolve(ret);
-    }
-
-    @PluginMethod
-    public void getSavedRootUris(PluginCall call) {
-        SharedPreferences prefs = getContext().getSharedPreferences(PREFS, Activity.MODE_PRIVATE);
-
-        JSObject ret = new JSObject();
-        ret.put("internal", prefs.getString(KEY_INTERNAL_URI, null));
-        ret.put("sd", prefs.getString(KEY_SD_URI, null));
-
-        call.resolve(ret);
-    }
-
-    @PluginMethod
-    public void clearSavedRootUris(PluginCall call) {
-        SharedPreferences prefs = getContext().getSharedPreferences(PREFS, Activity.MODE_PRIVATE);
-        prefs.edit().remove(KEY_INTERNAL_URI).remove(KEY_SD_URI).apply();
-
-        JSObject ret = new JSObject();
-        ret.put("success", true);
-        call.resolve(ret);
-    }
-
-    @PluginMethod
-    public void openFile(PluginCall call) {
-        String uriString = call.getString("uri");
-        String mimeType = call.getString("mimeType", "*/*");
-
-        if (uriString == null) {
-            call.reject("Missing uri");
-            return;
-        }
-
-        try {
-            Uri uri = Uri.parse(uriString);
-
-            Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(uri, mimeType);
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-
-            getContext().startActivity(intent);
-
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            call.resolve(ret);
-        } catch (Exception e) {
-            call.reject("Error opening file: " + e.getMessage());
-        }
-    }
-
+    // =========================
+    // SHARE FILE
+    // =========================
     @PluginMethod
     public void shareFile(PluginCall call) {
-        String uriString = call.getString("uri");
-        String mimeType = call.getString("mimeType", "*/*");
-
-        if (uriString == null) {
-            call.reject("Missing uri");
-            return;
-        }
-
         try {
+            String uriString = call.getString("uri");
+            String mimeType = call.getString("mimeType");
+
+            if (uriString == null || uriString.trim().isEmpty()) {
+                call.reject("URI requerida");
+                return;
+            }
+
             Uri uri = Uri.parse(uriString);
 
             Intent shareIntent = new Intent(Intent.ACTION_SEND);
-            shareIntent.setType(mimeType);
+            shareIntent.setType(mimeType != null ? mimeType : "*/*");
             shareIntent.putExtra(Intent.EXTRA_STREAM, uri);
             shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
             Intent chooser = Intent.createChooser(shareIntent, "Compartir archivo");
             chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
             getContext().startActivity(chooser);
 
-            JSObject ret = new JSObject();
-            ret.put("success", true);
-            call.resolve(ret);
+            call.resolve();
         } catch (Exception e) {
-            call.reject("Error sharing file: " + e.getMessage());
+            Log.e(TAG, "shareFile error", e);
+            call.reject("No se pudo compartir el archivo: " + e.getMessage());
         }
     }
 }
