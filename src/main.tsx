@@ -12,6 +12,7 @@ import '@ionic/react/css/core.css';
 import '@ionic/react/css/normalize.css';
 import '@ionic/react/css/structure.css';
 import '@ionic/react/css/typography.css';
+import './theme/filemanager.css';
 
 /* Optional Ionic CSS utils */
 import '@ionic/react/css/padding.css';

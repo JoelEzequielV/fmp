@@ -1,44 +1,67 @@
-import { Preferences } from '@capacitor/preferences';
-import { FileEntry } from '../types/file';
+// src/services/favoritesService.ts
 
-const KEY = 'fm_favorites';
+import type { FileEntry } from "../types/files";
+
+const FAVORITES_KEY = "fm_favorites";
+
+function read<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function write<T>(key: string, value: T) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
 
 export const favoritesService = {
-  async getAll(): Promise<FileEntry[]> {
-    const { value } = await Preferences.get({ key: KEY });
-    return value ? JSON.parse(value) : [];
+  async getFavorites(): Promise<FileEntry[]> {
+    return read<FileEntry[]>(FAVORITES_KEY, []);
   },
 
   async isFavorite(uri: string): Promise<boolean> {
-    const items = await this.getAll();
-    return items.some((i) => i.uri === uri);
+    const items = await this.getFavorites();
+    return items.some((item) => item.uri === uri);
   },
 
-  async add(item: FileEntry) {
-    const items = await this.getAll();
-    if (items.some((i) => i.uri === item.uri)) return;
-    items.unshift(item);
-    await Preferences.set({ key: KEY, value: JSON.stringify(items) });
-  },
+  async addFavorite(entry: FileEntry): Promise<FileEntry[]> {
+    const items = await this.getFavorites();
 
-  async remove(uri: string) {
-    const items = await this.getAll();
-    const updated = items.filter((i) => i.uri !== uri);
-    await Preferences.set({ key: KEY, value: JSON.stringify(updated) });
-  },
-
-  async toggle(item: FileEntry): Promise<boolean> {
-    const exists = await this.isFavorite(item.uri);
-    if (exists) {
-      await this.remove(item.uri);
-      return false;
-    } else {
-      await this.add(item);
-      return true;
+    if (items.some((item) => item.uri === entry.uri)) {
+      return items;
     }
+
+    const next = [entry, ...items];
+    write(FAVORITES_KEY, next);
+    return next;
   },
 
-  async clear() {
-    await Preferences.remove({ key: KEY });
-  }
+  async removeFavorite(uri: string): Promise<FileEntry[]> {
+    const items = await this.getFavorites();
+    const next = items.filter((item) => item.uri !== uri);
+    write(FAVORITES_KEY, next);
+    return next;
+  },
+
+  async toggleFavorite(entry: FileEntry): Promise<{
+    favorites: FileEntry[];
+    isFavorite: boolean;
+  }> {
+    const exists = await this.isFavorite(entry.uri);
+
+    if (exists) {
+      const favorites = await this.removeFavorite(entry.uri);
+      return { favorites, isFavorite: false };
+    }
+
+    const favorites = await this.addFavorite(entry);
+    return { favorites, isFavorite: true };
+  },
+
+  async clearFavorites(): Promise<void> {
+    localStorage.removeItem(FAVORITES_KEY);
+  },
 };

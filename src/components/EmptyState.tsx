@@ -1,24 +1,28 @@
-import { IonIcon, IonText } from '@ionic/react';
-import { folderOpenOutline } from 'ionicons/icons';
+// src/components/EmptyState.tsx
+import React from "react";
+import { folderOpenOutline } from "ionicons/icons";
+import { IonIcon } from "@ionic/react";
 
 interface Props {
   title?: string;
-  subtitle?: string;
+  description?: string;
+  message?: string;
 }
 
-export default function EmptyState({
-  title = 'Sin contenido',
-  subtitle = 'No hay elementos para mostrar'
-}: Props) {
+const EmptyState: React.FC<Props> = ({
+  title = "No hay elementos",
+  description,
+  message,
+}) => {
+  const finalDescription = description || message || "No hay contenido disponible.";
+
   return (
-    <div className="centered-empty">
-      <div style={{ textAlign: 'center', opacity: 0.9 }}>
-        <IonIcon icon={folderOpenOutline} style={{ fontSize: 48, marginBottom: 12 }} />
-        <IonText>
-          <h2 style={{ margin: 0 }}>{title}</h2>
-          <p className="muted">{subtitle}</p>
-        </IonText>
-      </div>
+    <div className="flex flex-col items-center justify-center text-center py-16 px-6 opacity-80">
+      <IonIcon icon={folderOpenOutline} style={{ fontSize: "64px" }} />
+      <h2 className="text-xl font-semibold mt-4">{title}</h2>
+      <p className="text-sm mt-2 max-w-md">{finalDescription}</p>
     </div>
   );
-}
+};
+
+export default EmptyState;

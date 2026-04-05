@@ -1,4 +1,192 @@
-// src/pages/Browser.tsx
+//src\types\clipboard.ts
+import type { FileEntry } from "./files";
+
+export type ClipboardMode = "copy" | "cut";
+
+export interface ClipboardItem {
+  item: FileEntry;
+  mode: ClipboardMode;
+  createdAt: number;
+}
+
+export type ClipboardState = ClipboardItem | null;
+
+//src\services\clipboardService.ts
+import type {
+  ClipboardItem,
+  ClipboardMode,
+  ClipboardState,
+} from "../types/clipboard";
+import type { FileEntry } from "../types/files";
+import { storageService } from "./storageService";
+
+export const clipboardService = {
+  get(): ClipboardState {
+    return storageService.getClipboard();
+  },
+
+  set(item: FileEntry, mode: ClipboardMode): ClipboardItem {
+    const clip: ClipboardItem = {
+      item,
+      mode,
+      createdAt: Date.now(),
+    };
+
+    storageService.setClipboard(clip);
+    return clip;
+  },
+
+  clear() {
+    storageService.clearClipboard();
+  },
+};
+
+//src\components\ClipboardBar.tsx
+import React from "react";
+import { IonButton } from "@ionic/react";
+import type { ClipboardState } from "../types/clipboard";
+
+interface Props {
+  clipboard: ClipboardState;
+  onPaste: () => void;
+  onClear: () => void;
+}
+
+const ClipboardBar: React.FC<Props> = ({ clipboard, onPaste, onClear }) => {
+  if (!clipboard) return null;
+
+  return (
+    <div className="px-4 py-2 text-sm opacity-90 flex items-center justify-between">
+      <span>
+        Portapapeles: <strong>{clipboard.item.name}</strong> (
+        {clipboard.mode === "copy" ? "copiar" : "mover"})
+      </span>
+      <div className="flex gap-2">
+        <IonButton size="small" onClick={onPaste}>Pegar</IonButton>
+        <IonButton size="small" fill="outline" onClick={onClear}>Limpiar</IonButton>
+      </div>
+    </div>
+  );
+};
+
+export default ClipboardBar;
+
+//src\components\ActionBar.tsx
+import React from "react";
+import {
+  IonButton,
+  IonIcon,
+  IonInput,
+  IonItem,
+  IonLabel,
+  IonSelect,
+  IonSelectOption,
+} from "@ionic/react";
+import { gridOutline, listOutline, checkmarkDoneOutline } from "ionicons/icons";
+import type { FilterType, SortMode, ViewMode } from "../types/files";
+
+interface Props {
+  search: string;
+  sortBy: SortMode;
+  filterBy: FilterType;
+  viewMode: ViewMode;
+  selectionMode?: boolean;
+  onSearchChange: (value: string) => void;
+  onSortChange: (value: SortMode) => void;
+  onFilterChange: (value: FilterType) => void;
+  onViewModeChange: (value: ViewMode) => void;
+  onToggleSelectionMode?: () => void;
+}
+
+const ActionBar: React.FC<Props> = ({
+  search,
+  sortBy,
+  filterBy,
+  viewMode,
+  selectionMode,
+  onSearchChange,
+  onSortChange,
+  onFilterChange,
+  onViewModeChange,
+  onToggleSelectionMode,
+}) => {
+  return (
+    <div className="space-y-2">
+      <IonItem>
+        <IonInput
+          placeholder="Buscar archivos..."
+          value={search}
+          onIonInput={(e) => onSearchChange(e.detail.value || "")}
+        />
+      </IonItem>
+
+      <div className="grid grid-cols-2 gap-2">
+        <IonItem>
+          <IonLabel>Orden</IonLabel>
+          <IonSelect
+            value={sortBy}
+            onIonChange={(e) => onSortChange(e.detail.value)}
+          >
+            <IonSelectOption value="name-asc">Nombre A-Z</IonSelectOption>
+            <IonSelectOption value="name-desc">Nombre Z-A</IonSelectOption>
+            <IonSelectOption value="date-desc">Más recientes</IonSelectOption>
+            <IonSelectOption value="date-asc">Más antiguos</IonSelectOption>
+            <IonSelectOption value="size-desc">Más grandes</IonSelectOption>
+            <IonSelectOption value="size-asc">Más pequeños</IonSelectOption>
+          </IonSelect>
+        </IonItem>
+
+        <IonItem>
+          <IonLabel>Filtro</IonLabel>
+          <IonSelect
+            value={filterBy}
+            onIonChange={(e) => onFilterChange(e.detail.value)}
+          >
+            <IonSelectOption value="all">Todos</IonSelectOption>
+            <IonSelectOption value="folders">Carpetas</IonSelectOption>
+            <IonSelectOption value="images">Imágenes</IonSelectOption>
+            <IonSelectOption value="videos">Videos</IonSelectOption>
+            <IonSelectOption value="audio">Audio</IonSelectOption>
+            <IonSelectOption value="documents">Documentos</IonSelectOption>
+            <IonSelectOption value="apk">APK</IonSelectOption>
+            <IonSelectOption value="archives">Comprimidos</IonSelectOption>
+          </IonSelect>
+        </IonItem>
+      </div>
+
+      <div className="flex gap-2">
+        <IonButton
+          expand="block"
+          fill={viewMode === "list" ? "solid" : "outline"}
+          onClick={() => onViewModeChange("list")}
+        >
+          <IonIcon icon={listOutline} slot="start" />
+          Lista
+        </IonButton>
+
+        <IonButton
+          expand="block"
+          fill={viewMode === "grid" ? "solid" : "outline"}
+          onClick={() => onViewModeChange("grid")}
+        >
+          <IonIcon icon={gridOutline} slot="start" />
+          Grilla
+        </IonButton>
+
+        {onToggleSelectionMode && (
+          <IonButton expand="block" fill={selectionMode ? "solid" : "outline"} onClick={onToggleSelectionMode}>
+            <IonIcon icon={checkmarkDoneOutline} slot="start" />
+            Selección
+          </IonButton>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default ActionBar;
+
+//src/pages/Browser.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   IonPage,
@@ -33,9 +221,6 @@ import {
   starOutline,
   star,
   closeOutline,
-  checkmarkDoneOutline,
-  checkmarkCircleOutline,
-  removeCircleOutline,
 } from "ionicons/icons";
 import { useLocation, useNavigate } from "react-router-dom";
 import { clipboardService } from "../services/clipboardService";
@@ -58,7 +243,6 @@ import ActionBar from "../components/ActionBar";
 import EmptyState from "../components/EmptyState";
 import Breadcrumbs from "../components/Breadcrumbs";
 import PropertiesModal from "../components/PropertiesModal";
-import ClipboardBar from "../components/ClipboardBar";
 
 interface BrowserState {
   uri?: string;
@@ -85,9 +269,7 @@ const Browser: React.FC = () => {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<SortMode>("name-asc");
   const [filterBy, setFilterBy] = useState<FilterType>("all");
-  const [viewMode, setViewMode] = useState<FileVisualType>(
-    storageService.getViewMode()
-  );
+  const [viewMode, setViewMode] = useState<FileVisualType>(storageService.getViewMode());
 
   const [toast, setToast] = useState("");
 
@@ -115,6 +297,7 @@ const Browser: React.FC = () => {
       setLoading(true);
 
       const result = await safService.listDirectory(uri);
+
       const favoriteUris = storageService.getFavorites().map((f) => f.uri);
 
       const normalized = result.items.map((item) => ({
@@ -197,8 +380,6 @@ const Browser: React.FC = () => {
   }, [items, search, filterBy, sortBy]);
 
   const refreshCurrent = async () => {
-    setClipboardState(clipboardService.get());
-
     if (isSpecialMode) {
       loadSpecial();
       return;
@@ -259,16 +440,6 @@ const Browser: React.FC = () => {
     });
   };
 
-  const selectAllVisible = () => {
-    setSelected(visibleItems);
-    setSelectionMode(true);
-  };
-
-  const clearSelection = () => {
-    setSelected([]);
-    setSelectionMode(false);
-  };
-
   const toggleFavorite = (item: FileEntry) => {
     const isFav = storageService.toggleFavorite(item);
 
@@ -299,16 +470,17 @@ const Browser: React.FC = () => {
 
   const handleRename = async (newNameParam?: string) => {
     if (!activeItem) return;
-
+  
     const finalName = (newNameParam ?? renameValue).trim();
     if (!finalName) return;
-
+  
+    // si el nombre es exactamente el mismo, no hacemos nada
     if (finalName === activeItem.name.trim()) {
       setShowRename(false);
       setToast("El nombre no cambió");
       return;
     }
-
+  
     try {
       await safService.rename(activeItem.uri, finalName);
       setRenameValue(finalName);
@@ -330,10 +502,10 @@ const Browser: React.FC = () => {
 
   const handleCreateFolder = async (folderNameParam?: string) => {
     if (!currentUri) return;
-
+  
     const finalName = (folderNameParam ?? newFolderName).trim();
     if (!finalName) return;
-
+  
     try {
       await safService.createFolder(currentUri, finalName);
       setShowCreateFolder(false);
@@ -345,18 +517,14 @@ const Browser: React.FC = () => {
     }
   };
 
-  const setClipboard = (itemsToStore: FileEntry[], mode: ClipboardMode) => {
-    const clip = clipboardService.set(itemsToStore, mode);
+  const setClipboard = (item: FileEntry, mode: ClipboardMode) => {
+    const clip = clipboardService.set(item, mode);
     setClipboardState(clip);
-    setToast(
-      `${itemsToStore.length} elemento${itemsToStore.length !== 1 ? "s" : ""} en portapapeles`
-    );
   };
 
   const clearClipboard = () => {
     clipboardService.clear();
     setClipboardState(null);
-    setToast("Portapapeles limpiado");
   };
 
   const pasteHere = async () => {
@@ -366,28 +534,21 @@ const Browser: React.FC = () => {
     }
 
     const clip = clipboardService.get();
-    if (!clip || !clip.items.length) {
+    if (!clip) {
       setToast("Portapapeles vacío");
       return;
     }
 
     try {
-      for (const file of clip.items) {
-        if (clip.mode === "copy") {
-          await safService.copy(file.uri, currentUri);
-        } else {
-          await safService.move(file.uri, currentUri);
-        }
-      }
-
-      if (clip.mode === "cut") {
+      if (clip.mode === "copy") {
+        await safService.copy(clip.item.uri, currentUri);
+        setToast("Pegado correctamente");
+      } else {
+        await safService.move(clip.item.uri, currentUri);
         clipboardService.clear();
         setClipboardState(null);
+        setToast("Movido correctamente");
       }
-
-      setToast(
-        `${clip.items.length} elemento${clip.items.length !== 1 ? "s" : ""} pegado(s)`
-      );
 
       await refreshCurrent();
     } catch (error: any) {
@@ -433,35 +594,17 @@ const Browser: React.FC = () => {
           </IonTitle>
 
           {selectionMode ? (
-            <>
-              <IonButton
-                slot="end"
-                fill="clear"
-                onClick={selectAllVisible}
-              >
-                <IonIcon icon={checkmarkCircleOutline} />
-              </IonButton>
-
-              <IonButton
-                slot="end"
-                fill="clear"
-                onClick={clearSelection}
-              >
-                <IonIcon icon={removeCircleOutline} />
-              </IonButton>
-
-              <IonButton
-                slot="end"
-                fill="clear"
-                color="danger"
-                onClick={() => {
-                  setSelectionMode(false);
-                  setSelected([]);
-                }}
-              >
-                <IonIcon icon={closeOutline} />
-              </IonButton>
-            </>
+            <IonButton
+              slot="end"
+              fill="clear"
+              color="danger"
+              onClick={() => {
+                setSelectionMode(false);
+                setSelected([]);
+              }}
+            >
+              <IonIcon icon={closeOutline} />
+            </IonButton>
           ) : (
             !isSpecialMode && (
               <IonButton slot="end" fill="clear" onClick={pasteHere}>
@@ -508,12 +651,10 @@ const Browser: React.FC = () => {
           />
         </div>
 
-        {!selectionMode && !isSpecialMode && (
-          <ClipboardBar
-            clipboard={clipboard}
-            onPaste={pasteHere}
-            onClear={clearClipboard}
-          />
+        {clipboard && !selectionMode && !isSpecialMode && (
+          <div className="px-4 pb-2 text-sm opacity-80">
+            Portapapeles: <strong>{clipboard.item.name}</strong> ({clipboard.mode === "copy" ? "copiar" : "mover"})
+          </div>
         )}
 
         {loading ? (
@@ -574,10 +715,14 @@ const Browser: React.FC = () => {
 
         {selectionMode && selected.length > 0 && (
           <div className="fixed bottom-4 left-0 right-0 px-4 z-50">
-            <div className="bg-white rounded-2xl shadow-lg p-3 flex flex-wrap justify-center gap-2">
+            <div className="bg-white rounded-2xl shadow-lg p-3 flex justify-center gap-2">
               <IonButton
                 fill="outline"
-                onClick={() => setClipboard(selected, "copy")}
+                onClick={() => {
+                  if (selected.length === 1) {
+                    setClipboard(selected[0], "copy");
+                  }
+                }}
               >
                 <IonIcon icon={copyOutline} slot="start" />
                 Copiar
@@ -585,31 +730,15 @@ const Browser: React.FC = () => {
 
               <IonButton
                 fill="outline"
-                onClick={() => setClipboard(selected, "cut")}
+                onClick={() => {
+                  if (selected.length === 1) {
+                    setClipboard(selected[0], "cut");
+                  }
+                }}
               >
                 <IonIcon icon={cutOutline} slot="start" />
                 Mover
               </IonButton>
-
-              {selected.length === visibleItems.length ? (
-                <IonButton
-                  fill="outline"
-                  color="medium"
-                  onClick={clearSelection}
-                >
-                  <IonIcon icon={removeCircleOutline} slot="start" />
-                  Deseleccionar
-                </IonButton>
-              ) : (
-                <IonButton
-                  fill="outline"
-                  color="medium"
-                  onClick={selectAllVisible}
-                >
-                  <IonIcon icon={checkmarkDoneOutline} slot="start" />
-                  Todo
-                </IonButton>
-              )}
 
               <IonButton color="danger" onClick={handleMultiDelete}>
                 <IonIcon icon={trashOutline} slot="start" />
@@ -620,26 +749,25 @@ const Browser: React.FC = () => {
         )}
 
         <IonActionSheet
+          cssClass="my-custom-action-sheet"
           isOpen={showActionSheet}
           onDidDismiss={() => setShowActionSheet(false)}
           header={activeItem?.name}
           buttons={[
             {
-              text: activeItem?.favorite
-                ? "Quitar de favoritos"
-                : "Añadir a favoritos",
+              text: activeItem?.favorite ? "Quitar de favoritos" : "Añadir a favoritos",
               icon: activeItem?.favorite ? star : starOutline,
               handler: () => activeItem && toggleFavorite(activeItem),
             },
             {
               text: "Copiar",
               icon: copyOutline,
-              handler: () => activeItem && setClipboard([activeItem], "copy"),
+              handler: () => activeItem && setClipboard(activeItem, "copy"),
             },
             {
               text: "Mover",
               icon: cutOutline,
-              handler: () => activeItem && setClipboard([activeItem], "cut"),
+              handler: () => activeItem && setClipboard(activeItem, "cut"),
             },
             {
               text: "Compartir",

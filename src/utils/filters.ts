@@ -1,49 +1,78 @@
-import { FileEntry, FileKind } from '../types/file';
+import type { FileEntry, FilterType, SortMode } from "../types/files";
 
-export type SortMode = 'name_asc' | 'name_desc' | 'date_desc' | 'date_asc' | 'size_desc' | 'size_asc';
+export const filterFiles = (
+  files: FileEntry[],
+  search: string,
+  filterBy: FilterType = "all"
+): FileEntry[] => {
+  const query = search.trim().toLowerCase();
 
-export function filterByKind(items: FileEntry[], kind: FileKind): FileEntry[] {
-  switch (kind) {
-    case 'images':
-      return items.filter((i) => i.type === 'image');
-    case 'documents':
-      return items.filter((i) => i.type === 'document');
-    case 'downloads':
-      return items.filter((i) => i.name.toLowerCase().includes('download') || i.parentUri?.toLowerCase().includes('download'));
-    default:
-      return items;
-  }
-}
+  return files.filter((file) => {
+    const matchesSearch = !query || file.name.toLowerCase().includes(query);
 
-export function filterBySearch(items: FileEntry[], query: string): FileEntry[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return items;
-  return items.filter((i) => i.name.toLowerCase().includes(q));
-}
+    let matchesFilter = true;
 
-export function sortItems(items: FileEntry[], mode: SortMode): FileEntry[] {
-  const arr = [...items];
+    switch (filterBy) {
+      case "folders":
+        matchesFilter = file.isDirectory;
+        break;
+      case "images":
+        matchesFilter = file.type === "image";
+        break;
+      case "videos":
+        matchesFilter = file.type === "video";
+        break;
+      case "audio":
+        matchesFilter = file.type === "audio";
+        break;
+      case "documents":
+        matchesFilter =
+          !file.isDirectory &&
+          ["application/pdf", "text/plain", "application/msword"].some((m) =>
+            file.mimeType?.includes(m)
+          );
+        break;
+      case "apk":
+        matchesFilter = file.type === "apk";
+        break;
+      case "archives":
+        matchesFilter = file.type === "archive";
+        break;
+      default:
+        matchesFilter = true;
+    }
 
-  arr.sort((a, b) => {
+    return matchesSearch && matchesFilter;
+  });
+};
+
+export const sortFiles = (
+  files: FileEntry[],
+  sortBy: SortMode = "name-asc"
+): FileEntry[] => {
+  const sorted = [...files];
+
+  sorted.sort((a, b) => {
     if (a.isDirectory && !b.isDirectory) return -1;
     if (!a.isDirectory && b.isDirectory) return 1;
 
-    switch (mode) {
-      case 'name_desc':
-        return b.name.localeCompare(a.name);
-      case 'date_desc':
-        return (b.modified || 0) - (a.modified || 0);
-      case 'date_asc':
-        return (a.modified || 0) - (b.modified || 0);
-      case 'size_desc':
-        return (b.size || 0) - (a.size || 0);
-      case 'size_asc':
-        return (a.size || 0) - (b.size || 0);
-      case 'name_asc':
-      default:
+    switch (sortBy) {
+      case "name-asc":
         return a.name.localeCompare(b.name);
+      case "name-desc":
+        return b.name.localeCompare(a.name);
+      case "date-desc":
+        return (b.modified || 0) - (a.modified || 0);
+      case "date-asc":
+        return (a.modified || 0) - (b.modified || 0);
+      case "size-desc":
+        return (b.size || 0) - (a.size || 0);
+      case "size-asc":
+        return (a.size || 0) - (b.size || 0);
+      default:
+        return 0;
     }
   });
 
-  return arr;
-}
+  return sorted;
+};

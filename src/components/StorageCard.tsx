@@ -1,31 +1,33 @@
-import { IonCard, IonCardContent, IonText } from '@ionic/react';
-import { StorageRoot } from '../types/file';
+import React from "react";
+import { IonButton, IonCard, IonCardContent } from "@ionic/react";
+import type { SavedRoot } from "../types/files";
 
-type Props = {
-  item: StorageRoot;
-  onClick: () => void;
-};
+interface Props {
+  item: SavedRoot;
+  onOpen: (root: SavedRoot) => void;
+  onDelete: (root: SavedRoot) => void;
+}
 
-export default function StorageCard({ item, onClick }: Props) {
+const StorageCard: React.FC<Props> = ({ item, onOpen, onDelete }) => {
   return (
-    <IonCard className="card-clean clickable" button onClick={onClick}>
-      <IonCardContent style={{ padding: 16 }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <img
-            src={item.icon}
-            alt={item.title}
-            style={{ width: 34, height: 34, objectFit: 'contain' }}
-          />
-          <IonText>
-            <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>
-              {item.title}
-            </h3>
-          </IonText>
-          <IonText color="medium">
-            <p style={{ margin: 0, fontSize: '.85rem' }}>{item.subtitle}</p>
-          </IonText>
+    <IonCard>
+      <IonCardContent>
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="font-semibold">{item.name}</div>
+            <div className="text-sm opacity-70 break-all">{item.uri}</div>
+          </div>
+
+          <div className="flex gap-2">
+            <IonButton size="small" onClick={() => onOpen(item)}>Abrir</IonButton>
+            <IonButton size="small" color="danger" fill="outline" onClick={() => onDelete(item)}>
+              Quitar
+            </IonButton>
+          </div>
         </div>
       </IonCardContent>
     </IonCard>
   );
-}
+};
+
+export default StorageCard;

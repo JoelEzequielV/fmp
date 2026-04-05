@@ -1,128 +1,141 @@
+// src/pages/Home.tsx
+import React, { useEffect, useState } from "react";
 import {
-  IonContent,
   IonPage,
+  IonHeader,
+  IonToolbar,
+  IonTitle,
+  IonContent,
+  IonButton,
+  IonIcon,
   IonToast,
-  IonLoading
-} from '@ionic/react';
-import { useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import { useEffect, useState } from 'react';
+} from "@ionic/react";
+import {
+  addOutline,
+  starOutline,
+  timeOutline,
+  settingsOutline,
+} from "ionicons/icons";
+import { useNavigate } from "react-router-dom";
+import type { SavedRoot } from "../types/files";
+import { safService } from "../services/safService";
+import { storageService } from "../services/storageService";
+import StorageCard from "../components/StorageCard";
+import EmptyState from "../components/EmptyState";
 
-import AppHeader from '../components/AppHeader';
-import StorageCard from '../components/StorageCard';
-import { getDefaultStorageCards } from '../services/storageService';
-import { safService } from '../services/safService';
-
-export default function Home() {
+const Home: React.FC = () => {
   const navigate = useNavigate();
-  const { t } = useTranslation();
+  const [roots, setRoots] = useState<SavedRoot[]>([]);
+  const [toast, setToast] = useState("");
 
-  const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState('');
-
-  const cards = getDefaultStorageCards();
+  const loadRoots = () => {
+    setRoots(storageService.getSavedRoots());
+  };
 
   useEffect(() => {
-    initRoots();
+    loadRoots();
   }, []);
 
-  const initRoots = async () => {
+  const handleAddFolder = async () => {
     try {
-      await safService.getSavedRootUris();
-    } catch (error) {
-      console.error(error);
+      const root = await safService.pickDirectory();
+      if (!root) return;
+
+      storageService.saveRoot(root);
+      loadRoots();
+      setToast("Carpeta agregada");
+    } catch (error: any) {
+      setToast(error?.message || "No se pudo agregar la carpeta");
     }
   };
 
-  const handleRootPick = async (key: 'root_internal_uri' | 'root_sd_uri') => {
-    try {
-      setLoading(true);
-
-      const result = await safService.pickDirectory();
-      await safService.saveRootUri(key, result.uri);
-
-      setToast(`Acceso guardado: ${result.name}`);
-      return result.uri;
-    } catch (error: any) {
-      setToast(error?.message || 'No se pudo seleccionar la carpeta');
-      return null;
-    } finally {
-      setLoading(false);
-    }
+  const handleOpenRoot = (root: SavedRoot) => {
+    navigate("/browser", {
+      state: {
+        uri: root.uri,
+        name: root.name,
+      },
+    });
   };
 
-  const openSection = async (kind: string) => {
-    try {
-      const roots = await safService.getSavedRootUris();
-
-      if (kind === 'internal') {
-        let uri = roots.internal;
-
-        if (!uri) {
-          uri = await handleRootPick('root_internal_uri');
-          if (!uri) return;
-        }
-
-        navigate(`/browser?kind=internal&uri=${encodeURIComponent(uri)}`);
-        return;
-      }
-
-      if (kind === 'sd') {
-        let uri = roots.sd;
-
-        if (!uri) {
-          uri = await handleRootPick('root_sd_uri');
-          if (!uri) return;
-        }
-
-        navigate(`/browser?kind=sd&uri=${encodeURIComponent(uri)}`);
-        return;
-      }
-
-      if (kind === 'images' || kind === 'documents' || kind === 'downloads') {
-        let uri = roots.internal;
-
-        if (!uri) {
-          uri = await handleRootPick('root_internal_uri');
-          if (!uri) return;
-        }
-
-        navigate(`/browser?kind=${kind}&uri=${encodeURIComponent(uri)}`);
-        return;
-      }
-
-      navigate(`/browser?kind=${kind}`);
-    } catch (error: any) {
-      setToast(error?.message || 'No se pudo abrir la sección');
-    }
+  const handleDeleteRoot = async (root: SavedRoot) => {
+    storageService.removeRoot(root.id);
+    loadRoots();
+    setToast("Carpeta quitada");
   };
 
   return (
     <IonPage>
-      <AppHeader title="File Manager Pro" />
-      <IonContent fullscreen>
-        <div className="page-shell">
-          <div className="section-title">{t('home')}</div>
+      <IonHeader>
+        <IonToolbar>
+          <IonTitle>File Manager Pro</IonTitle>
+          <IonButton slot="end" fill="clear" onClick={() => navigate("/settings")}>
+            <IonIcon icon={settingsOutline} />
+          </IonButton>
+        </IonToolbar>
+      </IonHeader>
 
-          <div className="grid-cards">
-            {cards.map((item) => (
+      <IonContent className="ion-padding">
+        <div className="flex gap-2 mb-4 flex-wrap">
+          <IonButton expand="block" onClick={handleAddFolder}>
+            <IonIcon icon={addOutline} slot="start" />
+            Agregar carpeta
+          </IonButton>
+
+          <IonButton
+            expand="block"
+            fill="outline"
+            onClick={() =>
+              navigate("/browser", {
+                state: { special: "favorites", name: "Favoritos" },
+              })
+            }
+          >
+            <IonIcon icon={starOutline} slot="start" />
+            Favoritos
+          </IonButton>
+
+          <IonButton
+            expand="block"
+            fill="outline"
+            onClick={() =>
+              navigate("/browser", {
+                state: { special: "recents", name: "Recientes" },
+              })
+            }
+          >
+            <IonIcon icon={timeOutline} slot="start" />
+            Recientes
+          </IonButton>
+        </div>
+
+        {roots.length === 0 ? (
+          <EmptyState
+            title="No agregaste carpetas todavía"
+            description="Tocá en 'Agregar carpeta' para empezar a explorar."
+          />
+        ) : (
+          <div className="space-y-3">
+            {roots.map((root) => (
               <StorageCard
-                key={item.id}
-                item={item}
-                onClick={() => openSection(item.kind)}
+                key={root.id}
+                item={root}
+                onOpen={handleOpenRoot}
+                onDelete={handleDeleteRoot}
               />
             ))}
           </div>
-        </div>
+        )}
 
-        <IonLoading isOpen={loading} message="Cargando..." />
         <IonToast
           isOpen={!!toast}
           message={toast}
-          duration={2200}
-          onDidDismiss={() => setToast('')}
+          duration={1800}
+          onDidDismiss={() => setToast("")}
         />
       </IonContent>
     </IonPage>
   );
-}
+};
+
+export default Home;

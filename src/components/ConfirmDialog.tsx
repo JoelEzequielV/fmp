@@ -1,19 +1,22 @@
-import { IonAlert } from '@ionic/react';
+// src/components/ConfirmDialog.tsx
+import {
+  IonAlert,
+} from "@ionic/react";
 
 type Props = {
   isOpen: boolean;
   title?: string;
   message?: string;
-  onConfirm: () => void;
   onCancel: () => void;
+  onConfirm: () => void;
 };
 
 export default function ConfirmDialog({
   isOpen,
-  title = 'Confirmar',
-  message = '¿Estás seguro?',
+  title = "Confirmar",
+  message = "¿Deseas continuar?",
+  onCancel,
   onConfirm,
-  onCancel
 }: Props) {
   return (
     <IonAlert
@@ -22,15 +25,14 @@ export default function ConfirmDialog({
       message={message}
       buttons={[
         {
-          text: 'Cancelar',
-          role: 'cancel',
-          handler: onCancel
+          text: "Cancelar",
+          role: "cancel",
+          handler: onCancel,
         },
         {
-          text: 'Confirmar',
-          role: 'destructive',
-          handler: onConfirm
-        }
+          text: "Aceptar",
+          handler: onConfirm,
+        },
       ]}
       onDidDismiss={onCancel}
     />

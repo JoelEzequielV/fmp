@@ -1,34 +1,26 @@
 import {
-    IonHeader,
-    IonToolbar,
-    IonTitle,
-    IonButtons,
-    IonButton,
-    IonIcon
-  } from '@ionic/react';
-  import { settingsOutline, informationCircleOutline } from 'ionicons/icons';
-  import { useNavigate } from 'react-router-dom';
-  
-  interface Props {
-    title: string;
-  }
-  
-  export default function AppHeader({ title }: Props) {
-    const navigate = useNavigate();
-  
-    return (
-      <IonHeader translucent={true}>
-        <IonToolbar>
-          <IonTitle>{title}</IonTitle>
-          <IonButtons slot="end">
-            <IonButton onClick={() => navigate('/about')}>
-              <IonIcon icon={informationCircleOutline} />
-            </IonButton>
-            <IonButton onClick={() => navigate('/settings')}>
-              <IonIcon icon={settingsOutline} />
-            </IonButton>
-          </IonButtons>
-        </IonToolbar>
-      </IonHeader>
-    );
-  }
+  IonHeader,
+  IonToolbar,
+  IonTitle
+} from '@ionic/react';
+
+interface Props {
+  title: string;
+  subtitle?: string;
+}
+
+export default function AppHeader({ title, subtitle }: Props) {
+  return (
+    <IonHeader className="fm-header">
+      <IonToolbar>
+        <div className="fm-header-inner">
+          <div>
+            <div className="fm-app-kicker">File Manager Pro</div>
+            <IonTitle className="fm-title">{title}</IonTitle>
+            {subtitle && <div className="fm-subtitle">{subtitle}</div>}
+          </div>
+        </div>
+      </IonToolbar>
+    </IonHeader>
+  );
+}

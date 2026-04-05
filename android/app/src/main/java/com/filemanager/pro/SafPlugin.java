@@ -1,117 +1,113 @@
 package com.filemanager.pro;
 
+import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
-import android.util.Log;
+import android.provider.DocumentsContract;
+import android.util.Base64;
+import android.webkit.MimeTypeMap;
 
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.activity.result.ActivityResult;
 import androidx.documentfile.provider.DocumentFile;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
 
-@CapacitorPlugin(name = "Saf")
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+
+@CapacitorPlugin(
+        name = "Saf",
+        permissions = {
+                @Permission(alias = "storage", strings = {})
+        }
+)
 public class SafPlugin extends Plugin {
 
-    private static final String TAG = "SAF_PLUGIN";
-    private PluginCall pendingPickDirectoryCall;
-    private ActivityResultLauncher<Intent> pickDirectoryLauncher;
+    private PluginCall savedPickDirectoryCall;
 
-    @Override
-    public void load() {
-        super.load();
-
-        pickDirectoryLauncher = getActivity().registerForActivityResult(
-                new ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (pendingPickDirectoryCall == null) return;
-
-                    try {
-                        if (result.getResultCode() != android.app.Activity.RESULT_OK || result.getData() == null) {
-                            pendingPickDirectoryCall.reject("No se seleccionó ninguna carpeta");
-                            pendingPickDirectoryCall = null;
-                            return;
-                        }
-
-                        Uri treeUri = result.getData().getData();
-                        if (treeUri == null) {
-                            pendingPickDirectoryCall.reject("URI inválida");
-                            pendingPickDirectoryCall = null;
-                            return;
-                        }
-
-                        final int takeFlags =
-                                Intent.FLAG_GRANT_READ_URI_PERMISSION |
-                                Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
-
-                        getActivity().getContentResolver().takePersistableUriPermission(treeUri, takeFlags);
-
-                        DocumentFile picked = FileUtils.resolveDocumentFile(getContext(), treeUri);
-
-                        JSObject ret = new JSObject();
-                        ret.put("uri", treeUri.toString());
-                        ret.put("name", picked != null && picked.getName() != null ? picked.getName() : "Carpeta");
-
-                        pendingPickDirectoryCall.resolve(ret);
-
-                    } catch (Exception e) {
-                        Log.e(TAG, "Error seleccionando carpeta", e);
-                        pendingPickDirectoryCall.reject("Error seleccionando carpeta: " + e.getMessage());
-                    } finally {
-                        pendingPickDirectoryCall = null;
-                    }
-                }
-        );
-    }
-
-    // =========================
+    // =========================================================
     // PICK DIRECTORY
-    // =========================
+    // =========================================================
     @PluginMethod
     public void pickDirectory(PluginCall call) {
         try {
-            pendingPickDirectoryCall = call;
+            savedPickDirectoryCall = call;
 
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-            intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-            intent.addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+            intent.addFlags(
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION |
+                            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+            );
 
-            pickDirectoryLauncher.launch(intent);
+            startActivityForResult(call, intent, "handlePickDirectoryResult");
         } catch (Exception e) {
-            Log.e(TAG, "pickDirectory error", e);
             call.reject("No se pudo abrir el selector de carpetas: " + e.getMessage());
         }
     }
 
-    // =========================
+    @SuppressWarnings("unused")
+    private void handlePickDirectoryResult(PluginCall call, ActivityResult result) {
+        if (savedPickDirectoryCall == null) return;
+
+        PluginCall pluginCall = savedPickDirectoryCall;
+        savedPickDirectoryCall = null;
+
+        try {
+            if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
+                pluginCall.reject("Selección cancelada");
+                return;
+            }
+
+            Intent data = result.getData();
+            Uri treeUri = data.getData();
+
+            if (treeUri == null) {
+                pluginCall.reject("No se recibió la carpeta");
+                return;
+            }
+
+            getContext().getContentResolver().takePersistableUriPermission(
+                    treeUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            );
+
+            JSObject ret = new JSObject();
+            ret.put("uri", treeUri.toString());
+            pluginCall.resolve(ret);
+
+        } catch (Exception e) {
+            pluginCall.reject("Error al seleccionar carpeta: " + e.getMessage());
+        }
+    }
+
+    // =========================================================
     // LIST DIRECTORY
-    // =========================
+    // =========================================================
     @PluginMethod
     public void listDirectory(PluginCall call) {
+        String uriString = call.getString("uri");
+
+        if (uriString == null || uriString.trim().isEmpty()) {
+            call.reject("URI requerida");
+            return;
+        }
+
         try {
-            String uriString = call.getString("uri");
-            if (uriString == null || uriString.trim().isEmpty()) {
-                call.reject("URI requerida");
-                return;
-            }
-
             Uri uri = Uri.parse(uriString);
-            DocumentFile dir = FileUtils.resolveDocumentFile(getContext(), uri);
+            DocumentFile dir = DocumentFile.fromTreeUri(getContext(), uri);
 
-            if (dir == null || !dir.exists()) {
-                call.reject("No se pudo acceder a la carpeta");
-                return;
-            }
-
-            if (!dir.isDirectory()) {
-                call.reject("La URI no es una carpeta");
+            if (dir == null || !dir.exists() || !dir.isDirectory()) {
+                call.reject("No se pudo listar la carpeta");
                 return;
             }
 
@@ -120,86 +116,72 @@ public class SafPlugin extends Plugin {
 
             if (files != null) {
                 for (DocumentFile file : files) {
-                    items.put(FileUtils.documentToJson(file));
+                    items.put(FileUtils.documentToJson(getContext(), file));
                 }
             }
 
             JSObject ret = new JSObject();
-            ret.put("currentUri", dir.getUri().toString());
+            ret.put("currentUri", uriString);
             ret.put("items", items);
-
             call.resolve(ret);
 
         } catch (Exception e) {
-            Log.e(TAG, "listDirectory error", e);
             call.reject("No se pudo listar la carpeta: " + e.getMessage());
         }
     }
 
-    // =========================
+    // =========================================================
     // OPEN FILE
-    // =========================
+    // =========================================================
     @PluginMethod
     public void openFile(PluginCall call) {
+        String uriString = call.getString("uri");
+        String mimeType = call.getString("mimeType", "*/*");
+
+        if (uriString == null || uriString.trim().isEmpty()) {
+            call.reject("URI requerida");
+            return;
+        }
+
         try {
-            String uriString = call.getString("uri");
-            String mimeType = call.getString("mimeType");
-
-            if (uriString == null || uriString.trim().isEmpty()) {
-                call.reject("URI requerida");
-                return;
-            }
-
             Uri uri = Uri.parse(uriString);
 
             Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(uri, mimeType != null ? mimeType : "*/*");
+            intent.setDataAndType(uri, mimeType);
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
             getContext().startActivity(intent);
-
             call.resolve();
+
         } catch (Exception e) {
-            Log.e(TAG, "openFile error", e);
             call.reject("No se pudo abrir el archivo: " + e.getMessage());
         }
     }
 
-    // =========================
+    // =========================================================
     // CREATE FOLDER
-    // =========================
+    // =========================================================
     @PluginMethod
     public void createFolder(PluginCall call) {
+        String parentUri = call.getString("parentUri");
+        String name = call.getString("name");
+
+        if (parentUri == null || name == null || name.trim().isEmpty()) {
+            call.reject("Datos incompletos");
+            return;
+        }
+
         try {
-            String parentUriString = call.getString("parentUri");
-            String name = call.getString("name");
-
-            if (parentUriString == null || parentUriString.trim().isEmpty()) {
-                call.reject("parentUri requerida");
-                return;
-            }
-
-            if (name == null || name.trim().isEmpty()) {
-                call.reject("Nombre requerido");
-                return;
-            }
-
-            Uri parentUri = Uri.parse(parentUriString);
-            DocumentFile parent = FileUtils.resolveDocumentFile(getContext(), parentUri);
+            DocumentFile parent = DocumentFile.fromTreeUri(getContext(), Uri.parse(parentUri));
 
             if (parent == null || !parent.exists() || !parent.isDirectory()) {
-                call.reject("No se pudo acceder a la carpeta padre");
+                call.reject("Carpeta padre inválida");
                 return;
             }
 
-            DocumentFile existing = FileUtils.findChildByName(parent, name);
-            if (existing != null) {
-                call.reject("Ya existe una carpeta o archivo con ese nombre");
-                return;
-            }
+            DocumentFile created = parent.createDirectory(name.trim());
 
-            DocumentFile created = parent.createDirectory(name);
             if (created == null) {
                 call.reject("No se pudo crear la carpeta");
                 return;
@@ -208,37 +190,36 @@ public class SafPlugin extends Plugin {
             JSObject ret = new JSObject();
             ret.put("uri", created.getUri().toString());
             ret.put("name", created.getName());
-
             call.resolve(ret);
 
         } catch (Exception e) {
-            Log.e(TAG, "createFolder error", e);
             call.reject("No se pudo crear la carpeta: " + e.getMessage());
         }
     }
 
-    // =========================
+    // =========================================================
     // DELETE
-    // =========================
+    // =========================================================
     @PluginMethod
     public void delete(PluginCall call) {
+        String uriString = call.getString("uri");
+
+        if (uriString == null) {
+            call.reject("URI requerida");
+            return;
+        }
+
         try {
-            String uriString = call.getString("uri");
-
-            if (uriString == null || uriString.trim().isEmpty()) {
-                call.reject("URI requerida");
-                return;
-            }
-
             Uri uri = Uri.parse(uriString);
-            DocumentFile file = FileUtils.resolveDocumentFile(getContext(), uri);
+            DocumentFile file = FileUtils.fromAnyUri(getContext(), uri);
 
             if (file == null || !file.exists()) {
-                call.reject("Archivo o carpeta no encontrado");
+                call.reject("Elemento no encontrado");
                 return;
             }
 
-            boolean deleted = FileUtils.deleteRecursive(file);
+            boolean deleted = file.delete();
+
             if (!deleted) {
                 call.reject("No se pudo eliminar");
                 return;
@@ -247,77 +228,70 @@ public class SafPlugin extends Plugin {
             call.resolve();
 
         } catch (Exception e) {
-            Log.e(TAG, "delete error", e);
             call.reject("No se pudo eliminar: " + e.getMessage());
         }
     }
 
-    // =========================
+    // =========================================================
     // RENAME
-    // =========================
+    // =========================================================
     @PluginMethod
     public void rename(PluginCall call) {
+        String uriString = call.getString("uri");
+        String newName = call.getString("newName");
+
+        if (uriString == null || newName == null || newName.trim().isEmpty()) {
+            call.reject("Datos incompletos");
+            return;
+        }
+
         try {
-            String uriString = call.getString("uri");
-            String newName = call.getString("newName");
-
-            if (uriString == null || uriString.trim().isEmpty()) {
-                call.reject("URI requerida");
-                return;
-            }
-
-            if (newName == null || newName.trim().isEmpty()) {
-                call.reject("Nuevo nombre requerido");
-                return;
-            }
-
             Uri uri = Uri.parse(uriString);
-            DocumentFile file = FileUtils.resolveDocumentFile(getContext(), uri);
+            DocumentFile file = FileUtils.fromAnyUri(getContext(), uri);
 
             if (file == null || !file.exists()) {
-                call.reject("Archivo o carpeta no encontrado");
+                call.reject("Archivo no encontrado");
                 return;
             }
 
-            boolean ok = file.renameTo(newName.trim());
-            if (!ok) {
-                call.reject("Could not rename file/folder");
+            boolean renamed = file.renameTo(newName.trim());
+
+            if (!renamed) {
+                call.reject("No se pudo renombrar");
                 return;
             }
 
             JSObject ret = new JSObject();
             ret.put("uri", file.getUri().toString());
             ret.put("name", file.getName());
-
             call.resolve(ret);
 
         } catch (Exception e) {
-            Log.e(TAG, "rename error", e);
-            call.reject("Could not rename file/folder");
+            call.reject("No se pudo renombrar: " + e.getMessage());
         }
     }
 
-    // =========================
+    // =========================================================
     // COPY
-    // =========================
+    // =========================================================
     @PluginMethod
     public void copy(PluginCall call) {
+        String sourceUri = call.getString("sourceUri");
+        String targetDirUri = call.getString("targetDirUri");
+
+        if (sourceUri == null || targetDirUri == null) {
+            call.reject("Datos incompletos");
+            return;
+        }
+
         try {
-            String sourceUriString = call.getString("sourceUri");
-            String targetDirUriString = call.getString("targetDirUri");
+            Uri source = Uri.parse(sourceUri);
+            Uri target = Uri.parse(targetDirUri);
 
-            if (sourceUriString == null || targetDirUriString == null) {
-                call.reject("sourceUri y targetDirUri requeridos");
-                return;
-            }
+            DocumentFile sourceFile = FileUtils.fromAnyUri(getContext(), source);
+            DocumentFile targetDir = DocumentFile.fromTreeUri(getContext(), target);
 
-            Uri sourceUri = Uri.parse(sourceUriString);
-            Uri targetDirUri = Uri.parse(targetDirUriString);
-
-            DocumentFile source = FileUtils.resolveDocumentFile(getContext(), sourceUri);
-            DocumentFile targetDir = FileUtils.resolveDocumentFile(getContext(), targetDirUri);
-
-            if (source == null || !source.exists()) {
+            if (sourceFile == null || !sourceFile.exists()) {
                 call.reject("Origen no encontrado");
                 return;
             }
@@ -327,56 +301,36 @@ public class SafPlugin extends Plugin {
                 return;
             }
 
-            if (FileUtils.isSameUri(source.getUri(), targetDir.getUri())) {
-                call.reject("No se puede copiar dentro de sí mismo");
-                return;
-            }
+            FileUtils.copyDocumentRecursive(getContext(), sourceFile, targetDir);
 
-            if (source.isDirectory() && FileUtils.isChildOf(source, targetDir)) {
-                call.reject("No se puede copiar una carpeta dentro de sí misma");
-                return;
-            }
-
-            DocumentFile result = FileUtils.copyDocumentRecursive(getContext(), source, targetDir);
-
-            if (result == null) {
-                call.reject("No se pudo copiar");
-                return;
-            }
-
-            JSObject ret = new JSObject();
-            ret.put("uri", result.getUri().toString());
-            ret.put("name", result.getName());
-
-            call.resolve(ret);
+            call.resolve();
 
         } catch (Exception e) {
-            Log.e(TAG, "copy error", e);
-            call.reject("Could not copy file/folder");
+            call.reject("No se pudo copiar: " + e.getMessage());
         }
     }
 
-    // =========================
+    // =========================================================
     // MOVE
-    // =========================
+    // =========================================================
     @PluginMethod
     public void move(PluginCall call) {
+        String sourceUri = call.getString("sourceUri");
+        String targetDirUri = call.getString("targetDirUri");
+
+        if (sourceUri == null || targetDirUri == null) {
+            call.reject("Datos incompletos");
+            return;
+        }
+
         try {
-            String sourceUriString = call.getString("sourceUri");
-            String targetDirUriString = call.getString("targetDirUri");
+            Uri source = Uri.parse(sourceUri);
+            Uri target = Uri.parse(targetDirUri);
 
-            if (sourceUriString == null || targetDirUriString == null) {
-                call.reject("sourceUri y targetDirUri requeridos");
-                return;
-            }
+            DocumentFile sourceFile = FileUtils.fromAnyUri(getContext(), source);
+            DocumentFile targetDir = DocumentFile.fromTreeUri(getContext(), target);
 
-            Uri sourceUri = Uri.parse(sourceUriString);
-            Uri targetDirUri = Uri.parse(targetDirUriString);
-
-            DocumentFile source = FileUtils.resolveDocumentFile(getContext(), sourceUri);
-            DocumentFile targetDir = FileUtils.resolveDocumentFile(getContext(), targetDirUri);
-
-            if (source == null || !source.exists()) {
+            if (sourceFile == null || !sourceFile.exists()) {
                 call.reject("Origen no encontrado");
                 return;
             }
@@ -386,60 +340,80 @@ public class SafPlugin extends Plugin {
                 return;
             }
 
-            if (FileUtils.isSameUri(source.getUri(), targetDir.getUri())) {
-                call.reject("No se puede mover dentro de sí mismo");
-                return;
-            }
+            FileUtils.copyDocumentRecursive(getContext(), sourceFile, targetDir);
+            sourceFile.delete();
 
-            if (source.isDirectory() && FileUtils.isChildOf(source, targetDir)) {
-                call.reject("No se puede mover una carpeta dentro de sí misma");
-                return;
-            }
-
-            DocumentFile moved = FileUtils.move(getContext(), source, targetDir);
-
-            JSObject ret = new JSObject();
-            ret.put("uri", moved.getUri().toString());
-            ret.put("name", moved.getName());
-
-            call.resolve(ret);
+            call.resolve();
 
         } catch (Exception e) {
-            Log.e(TAG, "move error", e);
-            call.reject("Could not move file/folder");
+            call.reject("No se pudo mover: " + e.getMessage());
         }
     }
 
-    // =========================
+    // =========================================================
     // SHARE FILE
-    // =========================
+    // =========================================================
     @PluginMethod
     public void shareFile(PluginCall call) {
+        String uriString = call.getString("uri");
+        String mimeType = call.getString("mimeType", "*/*");
+
+        if (uriString == null) {
+            call.reject("URI requerida");
+            return;
+        }
+
         try {
-            String uriString = call.getString("uri");
-            String mimeType = call.getString("mimeType");
-
-            if (uriString == null || uriString.trim().isEmpty()) {
-                call.reject("URI requerida");
-                return;
-            }
-
             Uri uri = Uri.parse(uriString);
 
-            Intent shareIntent = new Intent(Intent.ACTION_SEND);
-            shareIntent.setType(mimeType != null ? mimeType : "*/*");
-            shareIntent.putExtra(Intent.EXTRA_STREAM, uri);
-            shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            Intent intent = new Intent(Intent.ACTION_SEND);
+            intent.setType(mimeType);
+            intent.putExtra(Intent.EXTRA_STREAM, uri);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
-            Intent chooser = Intent.createChooser(shareIntent, "Compartir archivo");
+            Intent chooser = Intent.createChooser(intent, "Compartir archivo");
             chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
 
             getContext().startActivity(chooser);
-
             call.resolve();
+
         } catch (Exception e) {
-            Log.e(TAG, "shareFile error", e);
-            call.reject("No se pudo compartir el archivo: " + e.getMessage());
+            call.reject("No se pudo compartir: " + e.getMessage());
+        }
+    }
+
+    // =========================================================
+    // IMAGE PREVIEW
+    // =========================================================
+    @PluginMethod
+    public void getImagePreview(PluginCall call) {
+        String uriString = call.getString("uri");
+        int maxSize = call.getInt("maxSize", 256);
+
+        if (uriString == null || uriString.trim().isEmpty()) {
+            call.reject("URI requerida");
+            return;
+        }
+
+        try {
+            Uri uri = Uri.parse(uriString);
+            byte[] bytes = FileUtils.generateThumbnail(getContext(), uri, maxSize);
+
+            if (bytes == null || bytes.length == 0) {
+                call.reject("No se pudo generar miniatura");
+                return;
+            }
+
+            String base64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+            String dataUrl = "data:image/jpeg;base64," + base64;
+
+            JSObject ret = new JSObject();
+            ret.put("base64", base64);
+            ret.put("dataUrl", dataUrl);
+            call.resolve(ret);
+
+        } catch (Exception e) {
+            call.reject("No se pudo generar preview: " + e.getMessage());
         }
     }
 }

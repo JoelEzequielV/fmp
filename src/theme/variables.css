@@ -22,3 +22,38 @@
     --ion-modal-background: #0f172a;
     --ion-border-color: rgba(255,255,255,0.08);
   }
+  .storage-card {
+    border-radius: 20px;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+  }
+  
+  .fm-soft-card {
+    border-radius: 18px;
+    overflow: hidden;
+  }
+  
+  .fm-list-wrap {
+    padding: 10px 12px 90px;
+  }
+  
+  .fm-section-title {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 14px 14px 8px;
+  }
+  
+  .fm-pill {
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.08);
+    font-size: 13px;
+  }
+  
+  .fm-selected {
+    background: rgba(56,128,255,.14) !important;
+  }
+  
+  ion-item {
+    --border-color: rgba(255,255,255,0.06);
+  }

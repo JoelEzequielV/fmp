@@ -1,70 +1,53 @@
+import React from "react";
 import {
-  IonContent,
-  IonItem,
-  IonLabel,
-  IonList,
   IonPage,
+  IonHeader,
+  IonToolbar,
+  IonTitle,
+  IonContent,
   IonButton,
-  IonToast
-} from '@ionic/react';
-import { useTranslation } from 'react-i18next';
-import { useState } from 'react';
+} from "@ionic/react";
+import { useNavigate } from "react-router-dom";
+import { storageService } from "../services/storageService";
 
-import AppHeader from '../components/AppHeader';
-import LanguageSwitcher from '../components/LanguageSwitcher';
-import { safService } from '../services/safService';
+const Settings: React.FC = () => {
+  const navigate = useNavigate();
 
-export default function Settings() {
-  const { t } = useTranslation();
-  const [toast, setToast] = useState('');
+  const handleClearRecents = () => {
+    storageService.clearRecents();
+    alert("Recientes eliminados");
+  };
 
-  const resetAccess = async () => {
-    try {
-      await safService.clearSavedRootUris();
-      setToast('Accesos guardados eliminados');
-    } catch (error: any) {
-      setToast(error?.message || 'No se pudo limpiar');
-    }
+  const handleClearClipboard = () => {
+    storageService.clearClipboard();
+    alert("Portapapeles limpiado");
   };
 
   return (
     <IonPage>
-      <AppHeader title={t('settings')} />
-      <IonContent fullscreen>
-        <div className="page-shell">
-          <IonList inset>
-            <IonItem>
-              <IonLabel>
-                <h2>{t('language')}</h2>
-                <p>Cambiar idioma de la aplicación</p>
-              </IonLabel>
-            </IonItem>
-            <div style={{ padding: 12 }}>
-              <LanguageSwitcher />
-            </div>
+      <IonHeader>
+        <IonToolbar>
+          <IonTitle>Ajustes</IonTitle>
+        </IonToolbar>
+      </IonHeader>
 
-            <IonItem lines="none">
-              <IonLabel>
-                <h2>Permisos / Accesos</h2>
-                <p>Reiniciar carpetas autorizadas</p>
-              </IonLabel>
-            </IonItem>
+      <IonContent className="ion-padding">
+        <div className="space-y-3">
+          <IonButton expand="block" fill="outline" onClick={handleClearRecents}>
+            Limpiar recientes
+          </IonButton>
 
-            <div style={{ padding: 12 }}>
-              <IonButton expand="block" color="danger" onClick={resetAccess}>
-                Borrar accesos guardados
-              </IonButton>
-            </div>
-          </IonList>
+          <IonButton expand="block" fill="outline" onClick={handleClearClipboard}>
+            Limpiar portapapeles
+          </IonButton>
+
+          <IonButton expand="block" onClick={() => navigate("/")}>
+            Volver
+          </IonButton>
         </div>
-
-        <IonToast
-          isOpen={!!toast}
-          message={toast}
-          duration={2200}
-          onDidDismiss={() => setToast('')}
-        />
       </IonContent>
     </IonPage>
   );
-}
+};
+
+export default Settings;

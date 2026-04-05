@@ -1,0 +1,209 @@
+:root {
+  --fm-bg: #0f1115;
+  --fm-surface: #171a21;
+  --fm-surface-2: #1d2230;
+  --fm-border: rgba(255, 255, 255, 0.08);
+  --fm-text: #f5f7fb;
+  --fm-muted: #a4afc3;
+
+  --fm-blue: #4f8cff;
+  --fm-purple: #8b5cf6;
+  --fm-green: #22c55e;
+  --fm-orange: #f59e0b;
+  --fm-pink: #ec4899;
+  --fm-yellow: #eab308;
+}
+
+body {
+  background: var(--fm-bg);
+  color: var(--fm-text);
+}
+
+.page-shell {
+  padding: 18px;
+}
+
+.hero-box {
+  background: linear-gradient(135deg, #1b2130, #10141d);
+  border: 1px solid var(--fm-border);
+  border-radius: 24px;
+  padding: 22px;
+  margin-bottom: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+
+.hero-box h1 {
+  margin: 6px 0 8px;
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.hero-box p {
+  margin: 0;
+  color: var(--fm-muted);
+  line-height: 1.5;
+}
+
+.hero-kicker {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fm-blue);
+  font-weight: 700;
+}
+
+.hero-button {
+  --border-radius: 16px;
+  min-width: 180px;
+}
+
+.section-title {
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 14px;
+}
+
+.grid-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.storage-card {
+  background: linear-gradient(180deg, #171c27, #11151d);
+  border: 1px solid var(--fm-border);
+  border-radius: 22px;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  color: var(--fm-text);
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+
+.storage-card:active {
+  transform: scale(0.985);
+}
+
+.storage-card-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  color: white;
+  flex-shrink: 0;
+}
+
+.storage-card-content h3 {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.storage-card-content p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fm-muted);
+}
+
+.fm-header ion-toolbar {
+  --background: #11151d;
+  --border-color: transparent;
+}
+
+.fm-header-inner {
+  padding: 10px 16px 16px;
+}
+
+.fm-app-kicker {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fm-blue);
+  font-weight: 700;
+}
+
+.fm-title {
+  padding: 0 !important;
+  font-size: 28px !important;
+  font-weight: 800 !important;
+  color: var(--fm-text);
+}
+
+.fm-subtitle {
+  color: var(--fm-muted);
+  font-size: 14px;
+  margin-top: 6px;
+}
+
+.empty-state {
+  padding: 30px 18px;
+  text-align: center;
+  opacity: 0.85;
+}
+
+.empty-state h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.empty-state p {
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--fm-muted);
+}
+
+.browser-list ion-item {
+  --background: transparent;
+  --border-color: rgba(255, 255, 255, 0.05);
+  --padding-start: 14px;
+  --inner-padding-end: 10px;
+  border-radius: 16px;
+  margin: 6px 10px;
+}
+
+.clipboard-bar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 18px;
+  z-index: 999;
+  background: #1f1f1f;
+  color: #fff;
+  border-radius: 18px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.clipboard-name {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 768px) {
+  .hero-box {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hero-button {
+    width: 100%;
+  }
+}

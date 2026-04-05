@@ -1,80 +1,157 @@
+//src/components/ActionBar.tsx
+import React from "react";
 import {
   IonButton,
-  IonButtons,
   IonIcon,
+  IonInput,
+  IonItem,
+  IonLabel,
   IonSelect,
-  IonSelectOption
-} from '@ionic/react';
+  IonSelectOption,
+} from "@ionic/react";
 import {
-  addOutline,
-  refreshOutline,
-  folderOpenOutline,
-  trashOutline
-} from 'ionicons/icons';
-import { SortMode } from '../utils/filters';
+  gridOutline,
+  listOutline,
+  checkmarkDoneOutline,
+  checkboxOutline,
+  squareOutline,
+} from "ionicons/icons";
+import type { FilterType, SortMode, ViewMode } from "../types/files";
 
-type Props = {
-  onCreateFolder: () => void;
-  onRefresh: () => void;
-  onPaste?: () => void;
-  onClearClipboard?: () => void;
-  canPaste?: boolean;
-  sortMode: SortMode;
-  onChangeSort: (mode: SortMode) => void;
-};
+interface Props {
+  search: string;
+  sortBy: SortMode;
+  filterBy: FilterType;
+  viewMode: ViewMode;
+  selectionMode?: boolean;
+  hasItems?: boolean;
+  allSelected?: boolean;
+  onSearchChange: (value: string) => void;
+  onSortChange: (value: SortMode) => void;
+  onFilterChange: (value: FilterType) => void;
+  onViewModeChange: (value: ViewMode) => void;
+  onToggleSelectionMode?: () => void;
+  onSelectAll?: () => void;
+  onClearSelection?: () => void;
+}
 
-export default function ActionBar({
-  onCreateFolder,
-  onRefresh,
-  onPaste,
-  onClearClipboard,
-  canPaste,
-  sortMode,
-  onChangeSort
-}: Props) {
+const ActionBar: React.FC<Props> = ({
+  search,
+  sortBy,
+  filterBy,
+  viewMode,
+  selectionMode,
+  hasItems,
+  allSelected,
+  onSearchChange,
+  onSortChange,
+  onFilterChange,
+  onViewModeChange,
+  onToggleSelectionMode,
+  onSelectAll,
+  onClearSelection,
+}) => {
   return (
-    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
-      <IonButtons>
-        <IonButton onClick={onCreateFolder}>
-          <IonIcon icon={addOutline} slot="start" />
-          Nueva carpeta
-        </IonButton>
+    <div className="space-y-2">
+      <IonItem>
+        <IonInput
+          placeholder="Buscar archivos..."
+          value={search}
+          onIonInput={(e) => onSearchChange(e.detail.value || "")}
+        />
+      </IonItem>
 
-        <IonButton onClick={onRefresh}>
-          <IonIcon icon={refreshOutline} slot="start" />
-          Recargar
-        </IonButton>
+      <div className="grid grid-cols-2 gap-2">
+        <IonItem>
+          <IonLabel>Orden</IonLabel>
+          <IonSelect
+            value={sortBy}
+            onIonChange={(e) => onSortChange(e.detail.value)}
+          >
+            <IonSelectOption value="name-asc">Nombre A-Z</IonSelectOption>
+            <IonSelectOption value="name-desc">Nombre Z-A</IonSelectOption>
+            <IonSelectOption value="date-desc">Más recientes</IonSelectOption>
+            <IonSelectOption value="date-asc">Más antiguos</IonSelectOption>
+            <IonSelectOption value="size-desc">Más grandes</IonSelectOption>
+            <IonSelectOption value="size-asc">Más pequeños</IonSelectOption>
+          </IonSelect>
+        </IonItem>
 
-        {canPaste && (
-          <>
-            <IonButton onClick={onPaste}>
-              <IonIcon icon={folderOpenOutline} slot="start" />
-              Pegar
-            </IonButton>
-
-            <IonButton color="danger" onClick={onClearClipboard}>
-              <IonIcon icon={trashOutline} slot="start" />
-              Limpiar
-            </IonButton>
-          </>
-        )}
-      </IonButtons>
-
-      <div style={{ minWidth: 180 }}>
-        <IonSelect
-          interface="popover"
-          value={sortMode}
-          onIonChange={(e) => onChangeSort(e.detail.value)}
-          placeholder="Ordenar"
-        >
-          <IonSelectOption value="name_asc">Nombre A-Z</IonSelectOption>
-          <IonSelectOption value="name_desc">Nombre Z-A</IonSelectOption>
-          <IonSelectOption value="date_desc">Más recientes</IonSelectOption>
-          <IonSelectOption value="date_asc">Más antiguos</IonSelectOption>
-          <IonSelectOption value="size_desc">Más pesados</IonSelectOption>
-          <IonSelectOption value="size_asc">Más livianos</IonSelectOption>
-        </IonSelect>
+        <IonItem>
+          <IonLabel>Filtro</IonLabel>
+          <IonSelect
+            value={filterBy}
+            onIonChange={(e) => onFilterChange(e.detail.value)}
+          >
+            <IonSelectOption value="all">Todos</IonSelectOption>
+            <IonSelectOption value="folders">Carpetas</IonSelectOption>
+            <IonSelectOption value="images">Imágenes</IonSelectOption>
+            <IonSelectOption value="videos">Videos</IonSelectOption>
+            <IonSelectOption value="audio">Audio</IonSelectOption>
+            <IonSelectOption value="documents">Documentos</IonSelectOption>
+            <IonSelectOption value="apk">APK</IonSelectOption>
+            <IonSelectOption value="archives">Comprimidos</IonSelectOption>
+          </IonSelect>
+        </IonItem>
       </div>
+
+      <div className="flex flex-wrap gap-2">
+        <IonButton
+          expand="block"
+          fill={viewMode === "list" ? "solid" : "outline"}
+          onClick={() => onViewModeChange("list")}
+        >
+          <IonIcon icon={listOutline} slot="start" />
+          Lista
+        </IonButton>
+
+        <IonButton
+          expand="block"
+          fill={viewMode === "grid" ? "solid" : "outline"}
+          onClick={() => onViewModeChange("grid")}
+        >
+          <IonIcon icon={gridOutline} slot="start" />
+          Grilla
+        </IonButton>
+
+        {onToggleSelectionMode && (
+          <IonButton
+            expand="block"
+            fill={selectionMode ? "solid" : "outline"}
+            onClick={onToggleSelectionMode}
+          >
+            <IonIcon icon={checkmarkDoneOutline} slot="start" />
+            Selección
+          </IonButton>
+        )}
+      </div>
+
+      {selectionMode && hasItems && (
+        <div className="flex flex-wrap gap-2">
+          <IonButton
+            fill="outline"
+            size="small"
+            onClick={onSelectAll}
+          >
+            <IonIcon
+              icon={allSelected ? checkboxOutline : squareOutline}
+              slot="start"
+            />
+            {allSelected ? "Todo seleccionado" : "Seleccionar todo"}
+          </IonButton>
+
+          <IonButton
+            fill="outline"
+            size="small"
+            color="medium"
+            onClick={onClearSelection}
+          >
+            Deseleccionar
+          </IonButton>
+        </div>
+      )}
     </div>
   );
-}
+};
+
+export default ActionBar;

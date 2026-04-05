@@ -4,14 +4,13 @@ const config: CapacitorConfig = {
   appId: 'com.filemanager.pro',
   appName: 'File Manager Pro',
   webDir: 'dist',
-  bundledWebRuntime: false,
-  android: {
-    allowMixedContent: true
+  server: {
+    androidScheme: 'https'
   },
   plugins: {
     SplashScreen: {
       launchShowDuration: 1200,
-      backgroundColor: "#0f172a",
+      backgroundColor: '#0f172a',
       showSpinner: false
     }
   }
